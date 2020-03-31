@@ -1,0 +1,501 @@
+--- smtpd.orig.c	2006-11-03 23:38:47.000000000 +0100
++++ smtpd.c	2013-11-18 01:17:02.000000000 +0100
+@@ -62,6 +62,7 @@
+ 
+ typedef struct _to {
+ 	char *email;
++	char *rcpt_to;
+ 	char *mboxname;
+ 	FILE *mailbox;
+ 	uid_t uid;
+@@ -69,20 +70,20 @@
+ 	struct _to *next;
+ 	} recipient;
+ 
+-static char * configfile = SYSCONFDIR"/smtpd.conf";
++static char * configfile = SYSCONFDIR"/"SYSCONFBASENAME;
+ static uid_t uid = (uid_t)(-1);
+ static gid_t gid = (gid_t)(-1);
+ static uid_t suid = (uid_t)(-1);
+ static gid_t sgid = (gid_t)(-1);
+ static char hostname[BUFSIZE] = "localhost";
+-static char * mailboxes = DATADIR"/mailboxes";
++static char * mailboxes = DATADIR;
+ #ifdef SQLITE
+-static char * dbpath = DATADIR"/cache/smtpd/db";
++static char * dbpath = "/var/cache/norelaysmtpd/db";
+ static sqlite3 * db = NULL;
+ static unsigned int greylist_timeout = DEF_TIMEOUT;
+ static unsigned int greylist_old = DEF_OLD;
+ #endif
+-static struct sockaddr_in remote;
++static struct sockaddr_in remote_end;
+ static char id[BUFSIZE];
+ static char * helo = NULL;
+ static char * mail = NULL;
+@@ -96,6 +97,10 @@
+ static unsigned int timeout = DEF_TIMEOUT;
+ static unsigned int badness = 0;
+ 
++char *peer;
++char myip[16];
++char spf_header[BUFSIZE+1];
++
+ #ifdef SQLITE
+ bool open_db()
+ {
+@@ -132,7 +137,7 @@
+     return false;
+ 
+   /* add new client triplet or update 'lastseen' for existing one */
+-  sql = sqlite3_mprintf("INSERT OR IGNORE INTO clients (ip,domain,recipient) VALUES ('%q', '%q', '%q') ; UPDATE OR IGNORE clients SET lastseen=CURRENT_TIMESTAMP WHERE ip='%q' AND domain='%q' AND recipient='%q'", inet_ntoa(remote.sin_addr), domain, recipient, inet_ntoa(remote.sin_addr), domain, recipient);
++  sql = sqlite3_mprintf("INSERT OR IGNORE INTO clients (ip,domain,recipient) VALUES ('%q', '%q', '%q') ; UPDATE OR IGNORE clients SET lastseen=CURRENT_TIMESTAMP WHERE ip='%q' AND domain='%q' AND recipient='%q'", peer, domain, recipient, peer, domain, recipient);
+   if(sqlite3_exec(db, sql, NULL, NULL, NULL) != SQLITE_OK)
+   {	/* report error but ignore it */
+     syslog(LOG_WARNING, "could not update database %s: %s", dbpath, sqlite3_errmsg(db));
+@@ -149,7 +154,7 @@
+   if(!db)
+     return false;
+ 
+-  sql = sqlite3_mprintf("DELETE FROM clients WHERE ip='%q'", inet_ntoa(remote.sin_addr));
++  sql = sqlite3_mprintf("DELETE FROM clients WHERE ip='%q'", peer);
+   if(sqlite3_exec(db, sql, NULL, NULL, NULL) != SQLITE_OK)
+   {	/* report error but ignore it */
+     syslog(LOG_WARNING, "could not update database %s: %s", dbpath, sqlite3_errmsg(db));
+@@ -196,7 +201,7 @@
+     return false;
+ 
+   /* only allow recipient if corresponding triplet was first seen more than greylist_timeout seconds before last time it has been observed */
+-  sql = sqlite3_mprintf("SELECT ip FROM clients WHERE 86400*(JULIANDAY(lastseen)-JULIANDAY(firstseen))>=%d AND ip='%q' AND domain='%q' AND recipient='%q'", greylist_timeout, inet_ntoa(remote.sin_addr), domain, recipient);
++  sql = sqlite3_mprintf("SELECT ip FROM clients WHERE 86400*(JULIANDAY(lastseen)-JULIANDAY(firstseen))>=%d AND ip='%q' AND domain='%q' AND recipient='%q'", greylist_timeout, peer), domain, recipient);
+   if(sqlite3_exec(db, sql, callback, &result, NULL) != SQLITE_OK)
+   {	// report error but ignore it
+     syslog(LOG_WARNING, "could not access database %s: %s", dbpath, sqlite3_errmsg(db));
+@@ -309,6 +314,21 @@
+           else
+             syslog(LOG_ERR, "Unknown group %s in %s:%d", value, configfile, lnum);
+         }
++        else
++        if(strcmp(key, "catchall") == 0)
++        {
++	  do_catchall = atoi(value) ? 1 : 0;
++        }
++        else
++        if(strcmp(key, "rejectall") == 0)
++        {
++	  always_refuse = atoi(value) ? 1 : 0;
++        }
++        else
++        if(strcmp(key, "mkmailbox") == 0)
++        {
++	  auto_mkmaildir = atoi(value) ? 1 : 0;
++        }
+       }
+     }
+     fclose(conf);
+@@ -337,7 +357,7 @@
+ {
+   if(s == SIGALRM)
+   {
+-    syslog(LOG_INFO, "connection with %s [%s] timed out after %d seconds", helo?helo:"<unknown>", inet_ntoa(remote.sin_addr), timeout);
++    syslog(LOG_INFO, "connection helo=%s [%s] timed out after %d seconds", helo?helo:"<unknown>", peer, timeout);
+     print(421, "connection timed out.");
+     exit(1);
+   }
+@@ -440,7 +460,7 @@
+   t.tv_sec = badness * DELAY;
+   t.tv_nsec = 0;
+ 
+-  syslog(LOG_DEBUG, "suspicious client %s [%s], sleeping %d seconds",  helo?helo:"<unknown>", inet_ntoa(remote.sin_addr), badness * DELAY);
++  syslog(LOG_DEBUG, "suspicious client helo=%s [%s], sleeping %d seconds",  helo?helo:"<unknown>", peer, badness * DELAY);
+ #if SQLITE
+   clean_db();
+ #endif
+@@ -452,7 +472,7 @@
+   badness++;
+   timeout /= 2;		/* be less tolerant with bad clients */
+ 
+-  syslog(LOG_NOTICE, "suspicious client %s [%s], last command: \"%s\"",  helo?helo:"<unknown>", inet_ntoa(remote.sin_addr), line?line:"");
++  syslog(LOG_NOTICE, "suspicious client helo=%s [%s], last command: \"%s\"",  helo?helo:"<unknown>", peer, line?line:"");
+ }
+ 
+ void syntax_error(const char *line)
+@@ -504,9 +524,11 @@
+   strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S %z (%Z)", localtime(&now));
+   fprintf(r->mailbox, "Return-Path: <%s>\r\n", mail);
+   fprintf(r->mailbox, "Delivered-To: %s\r\n", r->email);
+-  fprintf(r->mailbox, "Received: from %s [%s]\r\n", helo, inet_ntoa(remote.sin_addr));
+-  fprintf(r->mailbox, "\tby %s with %s (smtpd %s) id %s\r\n", hostname, esmtp?"ESMTP":"SMTP", getpackageversion(), id);
+-  fprintf(r->mailbox, "\tfor %s; %s", r->email, date);
++  fprintf(r->mailbox, "Received: from helo=%s [%s]\r\n", helo, peer);
++  fprintf(r->mailbox, "\tby %s [%s] with %s (%s %s) id %s\r\n", hostname, myip, esmtp?"ESMTP":"SMTP", PROGRAMNAME, getpackageversion(), id);
++  fprintf(r->mailbox, "\tfor %s; %s", r->rcpt_to, date);
++  
++  if(spf_header[0]!=0) fprintf(r->mailbox, "\r\n%s", spf_header);
+ }
+ 
+ bool samefile(const char *f1, const char *f2)
+@@ -533,7 +555,7 @@
+   {
+     if(samefile(to, r->email))
+     {
+-      syslog(LOG_INFO, "duplicate message: from %s [%s], id=%s, return-path=<%s>, to=<%s>, delivered-to=<%s>", helo, inet_ntoa(remote.sin_addr), id, mail, to, r->email);
++      syslog(LOG_INFO, "duplicate message: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, delivered-to=<%s>", helo, peer, id, mail, to, r->email);
+       return true;
+     }
+     r = r->next;
+@@ -545,6 +567,10 @@
+ bool add_recipient(char *to)
+ {
+   char mailbox[BUFSIZE+1];
++  char localpart[BUFSIZE+1];
++  char * domainpart = NULL;
++  char comm[BUFSIZE+1];
++  char * rcpt_to;
+   recipient *r = NULL;
+   int fd = -1;
+   struct stat stats;
+@@ -570,13 +596,49 @@
+     print(250, "recipient OK");
+     return false;
+   }
++  drop_privileges();
++
++  /* save original Recipient */
++  rcpt_to = strdup(to);
++
++  stat:
++
++  strcpy(localpart, to);
++  domainpart = strrchr(localpart, '@');
++  if(domainpart) {
++    localpart[domainpart - localpart] = '\0';
++    domainpart++;
++  }
++  //debug//fprintf(stderr, "[%s] [%s] [%s]\n", to, localpart, domainpart);
+ 
++  raise_privileges();
+   if(stat(to, &stats) != 0)
+   {
+     unsigned int code;
+     drop_privileges();
+     code = (errno==ENOENT)?550:451;
+-    syslog(LOG_INFO, "reject %s [%s]: from=<%s>, to=<%s>: %s", helo, inet_ntoa(remote.sin_addr), mail, to, code==550?"no such mailbox":strerror(errno));
++    syslog(LOG_INFO, "%s helo=%s [%s]: from=<%s>, to=<%s>: %s", code==550?"catch":"reject", helo, peer, mail, to, code==550?"no such mailbox":strerror(errno));
++    if(code==550) {
++      if(auto_mkmaildir) {
++      	snprintf(comm, BUFSIZE, "/usr/bin/install -v -o nobody -g mailadmin -m 0750 -d %s/{,new,cur,tmp} >&2", to);
++      	raise_privileges();
++      	if(system(comm)==0) {
++      	  drop_privileges();
++    	  goto stat;
++    	}
++    	drop_privileges();
++      }
++      else if(strcmp(to, CATCHALL_LOCALPART)!=0 && do_catchall) {
++      	if(strcmp(localpart, CATCHALL_LOCALPART)!=0) {				// try CatchAll@RealDoma.in
++      	  sprintf(to, "%s@%s", CATCHALL_LOCALPART, domainpart);
++      	  goto stat;
++      	}
++      	else {									// try global CatchAll
++    	  sprintf(to, CATCHALL_LOCALPART);
++    	  goto stat;
++    	}
++      }
++    }
+     print(code, "no such mailbox");
+     return false;
+   }
+@@ -600,7 +662,7 @@
+   update_db(to);
+   if(!check_recipient(to))
+   {
+-    syslog(LOG_INFO, "greylisted %s [%s]: from=<%s>, to=<%s>", helo, inet_ntoa(remote.sin_addr), mail, to);
++    syslog(LOG_INFO, "greylisted helo=%s [%s]: from=<%s>, to=<%s>", helo, peer, mail, to);
+     print(450, "you are being put on waiting list, come back later");
+     deferred_recipients++;
+     return false;
+@@ -610,6 +672,7 @@
+   r = (recipient*)malloc(sizeof(*r));
+ 
+   r->email = to;
++  r->rcpt_to = rcpt_to;
+   r->mboxname = strdup(mailbox);
+   r->mailbox = fdopen(fd, "w");
+   r->uid = stats.st_uid;
+@@ -656,15 +719,16 @@
+         try++;
+       } while ((failed = ((link(r->mboxname, mailbox) != 0)) && (try<MAXTRY)));
+ 
++
+       failed = failed || (try >= MAXTRY);
+       result = result && (!failed);
+ 
+       if(size)
+       {
+         if(failed)
+-          syslog(LOG_INFO, "failed to deliver message: from %s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d: %s", helo, inet_ntoa(remote.sin_addr), id, mail, r->email, size, strerror(errno));
++          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d: %s", helo, peer, id, mail, r->email, size, strerror(errno));
+         else
+-          syslog(LOG_INFO, "message delivered: from %s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d", helo, inet_ntoa(remote.sin_addr), id, mail, r->email, size);
++          syslog(LOG_INFO, "message delivered: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d", helo, peer, id, mail, r->email, size);
+       }
+       unlink(r->mboxname);
+       drop_privileges();
+@@ -725,14 +789,21 @@
+   send_char_to_recipients('\r');
+   send_char_to_recipients('\n');
+ 
+-  if(free_recipients())
+-    print(250, "accepted for delivery.");
++  if(free_recipients()) {
++     if(always_refuse)
++       print(502, "failed to deliver message.");
+   else
+-  {
++       print(250, "accepted for delivery.");
++     }
++  else {
++     if(always_refuse)
++       print(502, "failed to deliver message.");
++     else {
+     size = 0;
+     print(451, "failed to deliver message.");
+   }
+ }
++}
+ 
+ void newid()
+ {
+@@ -753,10 +824,98 @@
+ 
+ void usage()
+ {
+-  fprintf(stderr, "usage: %s [-V ] [-c FILE]\n\n", "smtpd");
++  fprintf(stderr, "usage: %s [-V | -c FILE]\n -V  version\n -c  config file\n", PROGRAMNAME);
+   exit(1);
+ }
+ 
++int spf_query(const char* ip, const char* helo, const char* mailfrom, int* code_p, char* result_str, char* answer, char* logtext, char* header)
++{
++	pid_t kid;
++	char spf_info[BUFSIZE+1];
++	char outbuf[BUFSIZE+1];
++	int spf_info_len;
++	int pd0[2];
++	int pd1[2];
++	FILE* reader0;
++	FILE* writer0;
++	FILE* reader1;
++	FILE* writer1;
++	char* spf_cmd = "spfquery";
++	char* spf_arg_list[] = {
++		spf_cmd,     /* argv[0], the name of the program. */
++		"-f", "-", NULL
++	};
++	*code_p = 6;
++	sprintf(result_str, "%s", "error");
++	sprintf(logtext, "%s: exec failed", spf_cmd);
++	sprintf(answer, "%s", "temporary error");
++	sprintf(header, "");
++	int in_error_block = 0;
++	int line_no = 0;
++	
++	pipe(pd0);	// smtpd -> spfquery
++	pipe(pd1);	// spfquery -> smtpd
++	reader0 = fdopen(pd0[0], "r");
++	writer0 = fdopen(pd0[1], "w");
++	reader1 = fdopen(pd1[0], "r");
++	writer1 = fdopen(pd1[1], "w");
++	
++	kid = fork();
++	if(kid == 0)
++	{
++		close(pd0[1]);
++		close(pd1[0]);
++		dup2(pd0[0], fileno(stdin));
++		dup2(pd1[1], fileno(stdout));
++		execvp(spf_cmd, spf_arg_list);
++		_exit(127);
++	}
++	else if(kid == -1)
++	{
++		syslog(LOG_ERR, "fork() failed");
++		return 0;
++	}
++
++	close(pd0[0]);
++	close(pd1[1]);
++	spf_info_len = sprintf(spf_info, "%s %s %s\n", ip, mailfrom, helo);
++	//fprintf(writer0, "%s", spf_info);	// doesnt work
++	write(pd0[1], spf_info, spf_info_len);
++	close(pd0[1]);
++	
++	start_results:
++	if(!fgets(outbuf, sizeof outbuf, reader1)) goto end_results;
++	if(strncmp(outbuf, "StartError", 10)==0) in_error_block = 1;
++	if(!in_error_block) {
++		line_no++;
++		while(outbuf[strlen(outbuf)-1] == 10 || outbuf[strlen(outbuf)-1] == 13)
++			outbuf[strlen(outbuf)-1] = 0;
++		if(line_no == 1) snprintf(result_str, 10, "%s", outbuf);
++		else if(line_no == 2) sprintf(answer, "%s", outbuf);
++		else if(line_no == 3) sprintf(logtext, "%s", outbuf);
++		else if(line_no == 4) sprintf(header, "%s", outbuf);
++	}
++	if(strncmp(outbuf, "EndError", 8)==0) in_error_block = 0;
++	goto start_results;
++	
++	end_results:
++	
++	wait(code_p);
++	*code_p = WEXITSTATUS(*code_p);
++	/*  spfquery return codes:
++	1 neutral	The sender domain explicitly makes no assertion about the ip-address.  This result must be interpreted exactly as if no SPF record at all existed.
++	2 pass		The ip-address is authorized to send mail for the sender domain.
++	3 fail		The ip-address is unauthorized to send mail for the sender domain.
++	4 softfail	The ip-address is not authorized to send mail for the sender domain, but the sender domain cannot or does not wish to make a strong assertion that no such mail can ever come from it.
++	5 none		No SPF record was found.
++	6 error (temporary)		A transient error occurred (e.g. failure to reach a DNS server), preventing a result from being reached.
++	7 unknown (permanent error)	One or more SPF records could not be interpreted.
++	*/
++	if(answer[0]==0) sprintf(answer, "spf verify %s", result_str);
++	if(*code_p == 1 || *code_p == 2 || *code_p == 5 || /* ~all */ *code_p == 4) return 1;
++	return 0;
++}
++
+ 
+ int main(int argc, char * * argv)
+ {
+@@ -764,6 +923,13 @@
+   char line[BUFSIZE+1];
+   int c = 0;
+   int version = 0;
++  char p[BUFSIZE+1];
++  
++  int spf_code;
++  char spf_result_str[10];
++  char spf_answer[BUFSIZE+1];
++  char spf_logtext[BUFSIZE+1];
++  spf_header[0] = 0;
+ 
+   while ((c = getopt(argc, argv, "Vc:")) != -1)
+    switch (c)
+@@ -799,13 +965,31 @@
+   signal(SIGALRM, sigalarm);
+ 
+   newid();
++  
+   if(gethostname(hostname, sizeof(hostname)) != 0)
+     snprintf(hostname, sizeof(hostname), "localhost");
+ 
+-  length = sizeof(remote);
+-  if(getpeername(0, (struct sockaddr*)&remote, &length) == 0)
++  sprintf(myip, "%s\0", "<unknown>");
++
++  length = sizeof(remote_end);
++  if(getsockname(0, (struct sockaddr*)&remote_end, &length) == 0)
++  {
++    sprintf(myip, "%s\0", inet_ntop(AF_INET, &remote_end.sin_addr, myip, 16));
++  }
++  
++  peer = getenv("REMOTE_HOST");
++  if(peer == NULL)
++  {
++      if(getpeername(0, (struct sockaddr*)&remote_end, &length) == 0)
++      {
++        sprintf(p, "%s\0", inet_ntoa(remote_end.sin_addr));
++        peer = p;
++      }
++  }
++  
++  if(peer != NULL)
+   {
+-    syslog(LOG_INFO, "connection from [%s]", inet_ntoa(remote.sin_addr));
++    syslog(LOG_INFO, "connection from [%s]", p);
+ #ifdef SQLITE
+     open_db();
+ #endif
+@@ -824,25 +1008,23 @@
+       switch(cmd)
+       {
+         case HELO:
+-          if(param)
++          if(param && strchr(param, ' ') == NULL)
+           {
+-            if(helo)
+-              free(helo);
++            if(helo) free(helo);
+             helo = strdup(param);
+-            print(250, "pleased to meet you");
++            print(250, "pleased to meet you. norelay here.");
+           }
+           else
+             syntax_error(line);
+           break;
+ 
+         case EHLO:
+-          if(param)
++          if(param && strchr(param, ' ') == NULL)
+           {
+-            if(helo)
+-              free(helo);
++            if(helo) free(helo);
+             helo = strdup(param);
+             esmtp = 1;
+-            print(250, "pleased to meet you\n8BITMIME");
++            print(250, "pleased to meet you. norelay here.\n8BITMIME");
+           }
+           else
+             syntax_error(line);
+@@ -900,15 +1082,29 @@
+           {
+             if((mail = extract_email(param)))
+             {
++              if(spf_query(peer, helo, mail, &spf_code, spf_result_str, spf_answer, spf_logtext, spf_header)) {
++		
++		if(spf_header[0] == 0) sprintf(spf_header, "Received-SPF: %s", spf_result_str);
++		
+               domain = strrchr(mail, '@');	/* point to sender's domain name */
+-              if(domain)
+-                domain++;
++	        if(domain) domain++;
+               print(250, "sender OK");
++		
++              }
++              else
++              {
++              
++              	syslog(LOG_WARNING, "reject helo=%s [%s] mail_from=<%s>: %s (%s)", helo, peer, mail, spf_logtext, spf_result_str);
++              	mail = NULL;
++		print(spf_code == 6 ? 451 : 550, spf_answer);
++
++              }
+             }
+             else
+             {
+               suspicious(line);
+-              syslog(LOG_INFO, "reject %s [%s]: invalid return-path", helo, inet_ntoa(remote.sin_addr));
++              //syslog(LOG_INFO, "reject helo=%s [%s]: invalid return-path: %s", helo, inet_ntoa(remote.sin_addr), mail);
++              syslog(LOG_INFO, "reject helo=%s [%s]: invalid return-path", helo, peer);
+               print(501, "invalid return-path");
+             }
+           }
+@@ -965,7 +1161,7 @@
+             syntax_error(line);
+           else
+           {
+-            syslog(LOG_INFO, "client %s [%s] disconnected. %d %s (%d valid, %d deferred).",  helo?helo:"<unknown>", inet_ntoa(remote.sin_addr), valid_recipients+invalid_recipients+deferred_recipients, (valid_recipients+invalid_recipients>1)?"recipients":"recipient", valid_recipients, deferred_recipients);
++            syslog(LOG_INFO, "client helo=%s [%s] disconnected. %d %s (%d valid, %d deferred).",  helo?helo:"<unknown>", peer, valid_recipients+invalid_recipients+deferred_recipients, (valid_recipients+invalid_recipients>1)?"recipients":"recipient", valid_recipients, deferred_recipients);
+             cleanup();
+             print(221, "bye.");
+ #ifdef SQLITE
+@@ -979,7 +1175,7 @@
+           protocol_error(line);
+       }
+     }
+-    syslog(LOG_NOTICE, "client %s [%s] dropped connection.",  helo?helo:"<unknown>", inet_ntoa(remote.sin_addr));
++    syslog(LOG_NOTICE, "client helo=%s [%s] dropped connection.", helo?helo:"<unknown>", peer);
+ #ifdef SQLITE
+     clean_db();
+     badclient_db();

@@ -1,0 +1,20 @@
+--- config.orig.h	2006-11-03 23:38:47.000000000 +0100
++++ config.h	2012-09-29 13:19:53.000000000 +0200
+@@ -1,8 +1,16 @@
+ #define PREFIX "/usr"
+ #define LIBDIR PREFIX"/lib"
+ #define SYSCONFDIR "/etc"
+-#define DATADIR "/var"
++#define SYSCONFBASENAME "norelaysmtpd.conf"
++#define DATADIR "/var/spool/norelaysmtpd"
+ 
+ #if SQLITE
+ #include <sqlite3.h>
+ #endif
++
++int always_refuse = 0;
++int auto_mkmaildir = 0;
++int do_catchall = 0;
++
++// static char * catchall_localpart = "CatchAll";
++#define CATCHALL_LOCALPART "CatchAll"

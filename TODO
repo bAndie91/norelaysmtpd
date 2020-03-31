@@ -1,0 +1,3 @@
+- mbox-style mailboxes
+- mailboxes scripts (pipe incoming e-mail into /var/mailboxes/XXX@YYY/deliver if it exists and is executable)
+- improve portability

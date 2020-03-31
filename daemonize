@@ -1,0 +1,4 @@
+sudo sh -c 'while nc.traditional -v -l -p 25 -e sh -c "./smtpd -c smtpd.conf -R -A"; do true; done' &
+pid=$!
+echo pid=$pid
+echo -n $pid | sudo tee /var/run/nc/norelaysmtpd.pid >/dev/null

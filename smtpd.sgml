@@ -1,0 +1,208 @@
+<!DOCTYPE RefEntry PUBLIC "-//OASIS//DTD DocBook V4.1//EN">
+<refentry id="smtpd">
+
+<refmeta>
+<refentrytitle>smtpd</refentrytitle>
+<manvolnum>8</manvolnum>
+<refmiscinfo>$Rev: 1648 $</refmiscinfo>
+</refmeta>
+
+<refnamediv>
+<refname>smtpd</refname>
+<refpurpose>
+A lightweight SMTP endpoint receiver.
+</refpurpose>
+</refnamediv>
+
+<refsynopsisdiv>
+ <cmdsynopsis>
+   <command>smtpd</command> 
+     <group choice="opt">
+        <arg choice="opt"><option>-V</option></arg>
+     </group>
+   </cmdsynopsis>
+ <cmdsynopsis>
+   <command>smtpd</command> 
+     <group choice="opt">
+	<arg choice="opt" rep="norepeat"><option>-c </option><replaceable class="parameter">configurationfile</replaceable></arg>
+     </group>
+   </cmdsynopsis>
+</refsynopsisdiv>
+
+<refsect1><title>DESCRIPTION</title>
+<para>
+<indexterm><primary>smtpd</primary></indexterm>
+<application>smtpd</application>
+is a small daemon which sole purpose is end-point delivery of e-mail messages with minimal configuration. It is used to receive incoming SMTP connections from the Internet and deliver messages to the users it knows about, discarding everything else.
+</para>
+
+<para>
+<variablelist>
+<varlistentry>
+<term>-V</term>
+<listitem><para>
+Displays the version of <application>smtpd</application> and exits.
+</para></listitem></varlistentry>
+<varlistentry><term>-c <replaceable class="parameter">configurationfile</replaceable></term>
+<listitem><para>
+Allows to specify the emplacement of smtpd's configuration file.
+</para></listitem></varlistentry>
+</variablelist>
+</para>
+
+</refsect1>
+
+<refsect1><title>BUGS</title>
+<para>
+<application>smtpd</application> currently only runs from the Internet "super-daemon" (<application>inetd</application> or <application>xinetd</application>).
+</para>
+
+</refsect1>
+
+<refsect1><title>CONFIGURATION</title>
+<para>
+<application>smtpd</application> recognises the following configuration directives in its configuration file:
+</para>
+<variablelist>
+<varlistentry>
+<term>mailboxes</term>
+<listitem><para>
+The directory where mailboxes are located. Each e-mail address accepted by <application>smtpd</application> must have a corresponding mailbox named after it in this directory.
+</para>
+<para>
+Default is /var/mailboxes.
+</para></listitem></varlistentry>
+<varlistentry>
+<term>timeout</term>
+<listitem><para>
+The maximum duration <application>smtpd</application> will wait for reply from sending systems.</para>
+<para>Default is 300 seconds (5 minutes).
+</para></listitem></varlistentry>
+<varlistentry>
+<term>user</term>
+<listitem><para>
+The user id under which <application>smtpd</application> runs.
+</para></listitem></varlistentry>
+<varlistentry>
+<term>group</term>
+<listitem><para>
+The group id under which <application>smtpd</application> runs.
+</para></listitem></varlistentry>
+<varlistentry>
+<term>database</term>
+<listitem><para>
+The SQLite file <application>smtpd</application> should use to store persistent information about clients. It currently only includes greylisting information.
+</para>
+<para>
+Default is /var/cache/smtpd/db.
+</para></listitem></varlistentry>
+<varlistentry>
+<term>greylist</term>
+<listitem><para>
+How long (in seconds) clients must wait before retrying to send a deferred message once greylisted. Clients that retry after that delay are considered legitimate and any later connection will be accepted without delay.
+</para>
+<para>
+Default is 300.
+</para></listitem></varlistentry>
+<varlistentry>
+<term>old</term>
+<listitem><para>
+How much (in days) inactivity can be tolerated from legitimate clients before they are removed from the list of trusted servers.
+</para>
+<para>
+Default is 30.
+</para></listitem></varlistentry>
+</variablelist>
+</refsect1>
+
+<refsect1><title>NOTES</title>
+<variablelist>
+<varlistentry><term>mailboxes</term>
+
+<listitem><para>
+Mailboxes must be located under a single directory (/var/mailboxes by default, but this can be changed in the config file). If you need to store your mailboxes elsewhere, just use symbolic links to make them available under a single directory.
+</para>
+
+<para>
+Mailboxes can be created using the <application>maildirmake</application>(1) command. If you don't have the <application>maildirmake</application> command, just use
+</para>
+<para>
+mkdir -p /var/mailboxes/jsmith@mycorp.com/{cur,new,tmp}
+</para>
+</listitem></varlistentry>
+<varlistentry><term>aliases</term>
+
+<listitem><para>
+Mail aliases can easily be created with symbolic links
+</para>
+
+<para>
+The following commands define a few aliases for jsmith@mycorp.com
+$ cd /var/mailboxes
+$ ln -s jsmith@mycorp.com john.smith@mycorp.com
+$ ln -s jsmith@mycorp.com john.smith@eu.mycorp.com
+$ ln -s jsmith@mycorp.com john.smith@mycorp.eu
+</para>
+</listitem></varlistentry>
+
+</variablelist>
+</refsect1>
+
+<refsect1><title>SECURITY</title>
+<para>
+When accessing a mailbox, <application>smtpd</application> automatically switches to the id (and group id) of the mailbox and copies relevant access rights for messages it delivers from the mailbox.
+For example, if you want to define a shared mailbox to receive support requests, you can have the following:
+</para>
+
+<para>
+drwxrwxr-x 5 support support 4096 Oct 19 00:43 customer.support@mycorp.com
+</para>
+
+<para>
+All received messages will be owned by support:support and access rights will be -rw-rw-r-- (octal 0664) All members of the support group will have full access to messages delivered to that mailbox but "other" users will only be granted read access. 
+</para>
+</refsect1>
+
+<refsect1><title>FILES</title>
+<para>
+<variablelist>
+
+<varlistentry><term>/etc/smtpd.conf</term>
+<listitem><para>
+Configuration file.
+</para></listitem></varlistentry>
+<varlistentry>
+<term>/var/mailboxes/*</term>
+<listitem><para>
+Users' mailboxes.
+</para></listitem></varlistentry>
+
+</variablelist>
+</para>
+</refsect1>
+
+<refsect1><title>COPYING</title>
+<para>
+<application>smtpd</application> is distributed under the GNU GENERAL PUBLIC LICENSE (GPL) version 2.
+</para>
+</refsect1>
+
+<refsect1><title>SEE ALSO</title>
+<para><application>maildirmake</application>(1)</para>
+</refsect1>
+
+<refsect1><title>AUTHOR</title>
+<para>
+<application>smtpd</application> is maintained by Lyonel Vincent
+<email>lyonel@ezix.org</email>.
+</para>
+</refsect1>
+
+<refsect1><title>OTHER INFO</title>
+<para>
+More information about <application>smtpd</application> can be found at 
+<ulink url="http://ezix.org/software"></ulink></para>
+</refsect1>
+
+</refentry>
+

@@ -1,0 +1,87 @@
+Installing smtpd
+================
+
+REQUIREMENTS:
+- a UNIX-like system (only tested with recent Linux distributions)
+- INET super-daemon (xinetd / inetd)
+
+* compile the software:
+	make
+
+* install the binaries (will require root access):
+	make install
+
+  This installs the main daemon in /usr/sbin/ and its config file in
+  /etc/smtpd.conf
+
+* configure inetd or xinetd to launch smtpd
+  An example configuration file is included for xinetd (smtpd.xinetd), modify
+  it and copy it to /etc/xinetd.d/.
+  For inetd, just add the following line in your inetd.conf:
+
+smtp stream tcp nowait root /usr/sbin/smtpd smtpd
+
+* configure smtpd to your tastes:
+  Edit /etc/smtpd.conf (an example file is included). Please note that if you
+  use a different location from /etc/smtpd.conf (like /etc/opt/smtpd.conf),
+  you will have to modify the command line used to launch smtpd and use the
+  -c option (cf. the smtpd(8) manpage).
+
+Managing mailboxes
+==================
+Mailboxes must be located under a single directory (/var/mailboxes by default,
+but this can be changed in the config file).
+If you need to store your mailboxes elsewhere, just use symbolic links to make
+them available under a single directory.
+
+smtpd currently only supports "Maildir" mailboxes (you can find more details
+about this format at http://en.wikipedia.org/wiki/Maildir)
+In the future, smtpd may support the following additional formats:
+ - mbox ("standard" historic format)
+ - piping to executables (Procmail, Maildrop...)
+ - MH
+
+* naming
+  Mailboxes' names are *directly* linked to e-mail addresses: for example, to
+  create a mailbox to receive messages addressed to 'contact@mycorp.com', you
+  will have to create a folder named 'contact@mycorp.com' in your filesystem
+  As a consequence, ALL mailboxes MUST be valid e-mail addresses.
+
+* creating a mailbox (Maildir/Maildir++)
+  A Maildir is just a normal UNIX directory that contains 3 sub-directories:
+  'cur', 'new' and 'tmp'.
+  To create a mailbox for 'jsmith@mycorp.com' and assign it to user 'john':
+
+$ maildirmake /var/mailboxes/jsmith@mycorp.com
+$ chown -R john /var/mailboxes/jsmith@mycorp.com
+$ chmod -R u=rwx,og= /var/mailboxes/jsmith@mycorp.com
+
+or, if you don't have the maildirmake command,
+
+$ mkdir -p /var/mailboxes/jsmith@mycorp.com/{cur,new,tmp}
+$ chown -R joe /var/mailboxes/jsmith@mycorp.com
+$ chmod -R u=rwx,og= /var/mailboxes/jsmith@mycorp.com
+
+* aliases
+  Mail aliases can easily be created with symbolic links:
+
+  The following commands define a few aliases for jsmith@mycorp.com
+$ cd /var/mailboxes
+$ ln -s jsmith@mycorp.com john.smith@mycorp.com
+$ ln -s jsmith@mycorp.com john.smith@eu.mycorp.com
+$ ln -s jsmith@mycorp.com john.smith@mycorp.eu
+
+* security
+  When accessing a mailbox, smtpd automatically switches to the id (and group
+  id) of the mailbox and copies relevant access rights for messages it delivers
+  from the mailbox.
+  For example, if you want to define a shared mailbox to receive support
+  requests, you can have the following:
+
+drwxrwxr-x 5 support support 4096 Oct 19 00:43 customer.support@mycorp.com
+
+  All received messages will be owned by support:support and access rights will
+  be -rw-rw-r-- (octal 0664)
+  All members of the 'support' group will have full access to messages delivered
+  to that mailbox but "other" users will only be granted read access.
+
