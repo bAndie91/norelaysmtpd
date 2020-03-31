@@ -26,7 +26,7 @@
 #define DEF_OLD 30
 #define DELAY 5
 #define MAXTRY 3
-#define SAFECHARS "@0123456789-._abcdefghijklmnopqrstuvwxyz"
+#define SAFECHARS "@0123456789+-._abcdefghijklmnopqrstuvwxyz"
 
 const char *EOM = "\r\n.\r\n";
 
@@ -577,6 +577,7 @@ bool add_recipient(char *to)
 
   if(strspn(to, SAFECHARS) != strlen(to))	// characters not allowed in mailboxes names
   {
+    syslog(LOG_WARNING, "invalid char in RCPT TO: '%s'", to);
     print(553, "rejected");
     return false;
   }
