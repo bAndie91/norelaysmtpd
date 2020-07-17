@@ -981,16 +981,20 @@ int main(int argc, char * * argv)
   peer = getenv("REMOTE_HOST");
   if(peer == NULL)
   {
+    peer = getenv("TCPREMOTEIP");
+    if(peer == NULL)
+    {
       if(getpeername(0, (struct sockaddr*)&remote_end, &length) == 0)
       {
         sprintf(p, "%s\0", inet_ntoa(remote_end.sin_addr));
         peer = p;
       }
+    }
   }
   
   if(peer != NULL)
   {
-    syslog(LOG_INFO, "connection from [%s]", p);
+    syslog(LOG_INFO, "connection from [%s]", peer);
 #ifdef SQLITE
     open_db();
 #endif
