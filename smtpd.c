@@ -886,11 +886,15 @@ int spf_query(const char* ip, const char* helo, const char* mailfrom, int* code_
 	
 	start_results:
 	if(!fgets(outbuf, sizeof outbuf, reader1)) goto end_results;
-	if(strncmp(outbuf, "StartError", 10)==0) in_error_block = 1;
-	if(!in_error_block) {
+	while(outbuf[strlen(outbuf)-1] == 10 || outbuf[strlen(outbuf)-1] == 13) outbuf[strlen(outbuf)-1] = 0;
+	if(strncmp(outbuf, "StartError", 10)==0) {
+		in_error_block = 1;
+		syslog(LOG_WARNING, "spfquery args: %s %s %s:", ip, mailfrom, helo);
+	}
+	if(in_error_block) {
+		syslog(LOG_WARNING, "spfquery: %s", outbuf);
+	} else {
 		line_no++;
-		while(outbuf[strlen(outbuf)-1] == 10 || outbuf[strlen(outbuf)-1] == 13)
-			outbuf[strlen(outbuf)-1] = 0;
 		if(line_no == 1) snprintf(result_str, 10, "%s", outbuf);
 		else if(line_no == 2) sprintf(answer, "%s", outbuf);
 		else if(line_no == 3) sprintf(logtext, "%s", outbuf);
@@ -911,9 +915,10 @@ int spf_query(const char* ip, const char* helo, const char* mailfrom, int* code_
 	5 none		No SPF record was found.
 	6 error (temporary)		A transient error occurred (e.g. failure to reach a DNS server), preventing a result from being reached.
 	7 unknown (permanent error)	One or more SPF records could not be interpreted.
+	0 other errors, eg. invalid record
 	*/
 	if(answer[0]==0) sprintf(answer, "spf verify %s", result_str);
-	if(*code_p == 1 || *code_p == 2 || *code_p == 5 || /* ~all */ *code_p == 4) return 1;
+	if(*code_p == 1 || *code_p == 2 || *code_p == 5 || /* "~all" gives softfail */ *code_p == 4) return 1;
 	return 0;
 }
 
