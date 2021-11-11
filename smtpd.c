@@ -28,6 +28,8 @@
 #define MAXTRY 3
 #define SAFECHARS "@0123456789+-._abcdefghijklmnopqrstuvwxyz"
 
+#define EQ(a, b) (strcmp(a, b)==0)
+
 const char *EOM = "\r\n.\r\n";
 
 typedef enum {
@@ -96,6 +98,7 @@ static unsigned int invalid_recipients = 0;
 static unsigned int deferred_recipients = 0;
 static unsigned int timeout = DEF_TIMEOUT;
 static unsigned int badness = 0;
+static bool accept_bounces = false;
 
 char *peer;
 char myip[16];
@@ -237,7 +240,7 @@ void configure()
         char * key = NULL;
         char * value = NULL;
 
-        for ( key = s; isalnum(*s); s++) *s = tolower(*s);
+        for ( key = s; isalnum(*s) || *s=='_'; s++) *s = tolower(*s);
 
         while(isspace(*s)) { *s = '\0'; s++; }
         if(*s != '=')
@@ -328,6 +331,13 @@ void configure()
         if(strcmp(key, "mkmailbox") == 0)
         {
 	  auto_mkmaildir = atoi(value) ? 1 : 0;
+        }
+        else
+        if(strcmp(key, "accept_bounces") == 0)
+        {
+          if(EQ(value, "yes")) accept_bounces = true;
+          else if(EQ(value, "no")) accept_bounces = false;
+          else syslog(LOG_WARNING, "invalid setting '%s' for 'accept_bounces', only 'yes' or 'no' is valid", value);
         }
       }
     }
@@ -1090,25 +1100,28 @@ int main(int argc, char * * argv)
         case MAIL:
           if(!mail && helo && param)
           {
-            if((mail = extract_email(param)))
+            if((mail = extract_email(param))) 
             {
-              if(spf_query(peer, helo, mail, &spf_code, spf_result_str, spf_answer, spf_logtext, spf_header)) {
-		
-		if(spf_header[0] == 0) sprintf(spf_header, "Received-SPF: %s", spf_result_str);
-		
-	        domain = strrchr(mail, '@');	/* point to sender's domain name */
-	        if(domain) domain++;
-	        print(250, "sender OK");
-		
-              }
-              else
-              {
-              
-              	syslog(LOG_WARNING, "reject helo=%s [%s] mail_from=<%s>: %s (%s)", helo, peer, mail, spf_logtext, spf_result_str);
-              	mail = NULL;
-		print(spf_code == 6 ? 451 : 550, spf_answer);
-
-              }
+                if(spf_query(peer, helo, mail, &spf_code, spf_result_str, spf_answer, spf_logtext, spf_header))
+                {
+                	if(spf_header[0] == 0) sprintf(spf_header, "Received-SPF: %s", spf_result_str);
+					
+	        		domain = strrchr(mail, '@');	/* point to sender's domain name */
+	        		if(domain) domain++;
+	        		print(250, "sender OK");
+                }
+                else
+                {
+              		syslog(LOG_WARNING, "reject helo=%s [%s] mail_from=<%s>: %s (%s)", helo, peer, mail, spf_logtext, spf_result_str);
+              		mail = NULL;
+					print(spf_code == 6 ? 451 : 550, spf_answer);
+                }
+            }
+            else if(accept_bounces && EQ(param, "<>"))
+            {
+            	// it's a bounce and we want it
+            	mail = strdup("");
+            	print(250, "gimme that bounce");
             }
             else
             {
