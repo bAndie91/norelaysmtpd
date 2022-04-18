@@ -69,6 +69,7 @@ typedef struct _to {
 	FILE *mailbox;
 	uid_t uid;
 	gid_t gid;
+	bool good;
 	struct _to *next;
     } recipient;
 
@@ -631,7 +632,7 @@ bool add_recipient(char *to)
     syslog(LOG_INFO, "%s helo=%s [%s]: from=<%s>, to=<%s>: %s", code==550?"catch":"reject", helo, peer, mail, to, code==550?"no such mailbox":strerror(errno));
     if(code==550) {
       if(auto_mkmaildir) {
-      	snprintf(comm, BUFSIZE, "/usr/bin/install -v -o nobody -g mailadmin -m 0750 -d %s/{,new,cur,tmp} >&2", to);
+      	snprintf(comm, BUFSIZE, "/usr/bin/install -v -o nobody -g mailadmin -m 0750 -d ./%s/{,new,cur,tmp} >&2", to);
       	raise_privileges();
       	if(system(comm)==0) {
       	  drop_privileges();
@@ -688,6 +689,7 @@ bool add_recipient(char *to)
   r->mailbox = fdopen(fd, "w");
   r->uid = stats.st_uid;
   r->gid = stats.st_gid;
+  r->good = true;
   r->next = recipients;
 
   trace_headers(r);
@@ -702,9 +704,9 @@ bool add_recipient(char *to)
 
 bool free_recipients()
 {
-  bool result = true;
+  bool overall_result = true;
   int try = 0;
-  bool failed = false;
+  bool ok_write, ok_close, ok_link;
   char mailbox[BUFSIZE+1];
   recipient *r = recipients;
 
@@ -712,12 +714,24 @@ bool free_recipients()
   {
     recipient *t = r;
 
-    result = result && (!ferror(r->mailbox));
-    failed = false;
+    overall_result = overall_result && (!ferror(r->mailbox));
+    overall_result = overall_result && r->good;
+    ok_write = r->good;
+    ok_close = true;
+    ok_link = true;
     if(r->mailbox)
-      fclose(r->mailbox);
+    {
+      int ok = fclose(r->mailbox);
+      if(ok != 0)
+      {
+		syslog(LOG_ERR, "fclose: %s: %s", r->mboxname, strerror(errno));
+		ok_close = false;
+		overall_result = false;
+      }
+    }
     if(r->mboxname)
     {
+      bool failed_linking = false;
       try = 0;
       impersonate(r->uid, r->gid);
       if(size)
@@ -728,18 +742,19 @@ bool free_recipients()
         else
           snprintf(mailbox, BUFSIZE, "%s/new/%s-%d", r->email, id, try);
         try++;
-      } while ((failed = ((link(r->mboxname, mailbox) != 0)) && (try<MAXTRY)));
+      } while ((failed_linking = ((link(r->mboxname, mailbox) != 0)) && (try<MAXTRY)));
 
 
-      failed = failed || (try >= MAXTRY);
-      result = result && (!failed);
+      failed_linking = failed_linking || (try >= MAXTRY);
+      ok_link = !failed_linking;
+      overall_result = overall_result && ok_link;
 
       if(size)
       {
-        if(failed)
-          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d: %s", helo, peer, id, mail, r->email, size, strerror(errno));
-        else
+        if(ok_write && ok_close && ok_link)
           syslog(LOG_INFO, "message delivered: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d", helo, peer, id, mail, r->email, size);
+        else
+          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d: %s", helo, peer, id, mail, r->email, size, strerror(errno));
       }
       unlink(r->mboxname);
       drop_privileges();
@@ -752,7 +767,7 @@ bool free_recipients()
   }
 
   recipients = NULL;
-  return result;
+  return overall_result;
 }
 
 void send_char_to_recipients(char c)
@@ -761,8 +776,15 @@ void send_char_to_recipients(char c)
 
   while(r)
   {
-    if(!ferror(r->mailbox))
-      fwrite(&c, 1, 1, r->mailbox);
+    if(!ferror(r->mailbox) && r->good)
+    {
+      size_t written = fwrite(&c, 1, 1, r->mailbox);
+      if(written != 1)
+      {
+		syslog(LOG_ERR, "fwrite: %s: %s", r->mboxname, strerror(errno));
+      	r->good = false;
+      }
+    }
     r = r->next;
   }
 
