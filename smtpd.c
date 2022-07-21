@@ -266,6 +266,11 @@ void configure()
           }
         }
         else
+        if(strcmp(key, "maildirs") == 0)
+        {
+	  mailboxes = strdup(value);
+        }
+        else
 #ifdef SQLITE
         if(strcmp(key, "database") == 0)
         {
@@ -632,7 +637,8 @@ bool add_recipient(char *to)
     syslog(LOG_INFO, "%s helo=%s [%s]: from=<%s>, to=<%s>: %s", code==550?"catch":"reject", helo, peer, mail, to, code==550?"no such mailbox":strerror(errno));
     if(code==550) {
       if(auto_mkmaildir) {
-      	snprintf(comm, BUFSIZE, "/usr/bin/install -v -o nobody -g mailadmin -m 0750 -d ./%s/{,new,cur,tmp} >&2", to);
+        /* unsafe chars here (single- and double-quote, space, slash) are rejected in <to>, so we're good to go */
+      	snprintf(comm, BUFSIZE, "/bin/bash -c '/usr/bin/install -v -o nobody -g mailadmin -m 0750 -d ./\"%s\"/{,new,cur,tmp} >&2'", to);
       	raise_privileges();
       	if(system(comm)==0) {
       	  drop_privileges();
