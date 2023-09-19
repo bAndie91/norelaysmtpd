@@ -71,14 +71,7 @@ depend:
 popdns.o: config.h version.h
 version.o: version.h
 
-deb:
-	strip norelaysmtpd
-	cp norelaysmtpd ../package/deb/usr/local/sbin/
-	sed -i ../package/deb/DEBIAN/control -e "s/^Version:.*/Version: `./norelaysmtpd -V`/"
-	fakeroot dpkg-deb -b ../package/deb ../package/norelaysmtpd_`./norelaysmtpd -V`.deb
-
-diff:
-	diff -Nuw config.orig.h  config.h  > config.h.patch  || true
-	diff -Nuw smtpd.orig.c   smtpd.c   > smtpd.c.patch   || true
-	diff -Nuw version.orig.h version.h > version.h.patch || true
-	diff -Nuw version.orig.c version.c > version.c.patch || true
+deb: norelaysmtpd
+	cp norelaysmtpd ../deb/usr/local/sbin/
+	sed -i ../deb/DEBIAN/control -e "s/^Version:.*/Version: `./norelaysmtpd -V`/"
+	cd .. && mkdeb
