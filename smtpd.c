@@ -30,6 +30,15 @@
 
 #define EQ(a, b) (strcmp(a, b)==0)
 
+#define SPF_CODE_NEUTRAL 1
+#define SPF_CODE_PASS 2
+#define SPF_CODE_FAIL 3
+#define SPF_CODE_SOFTFAIL 4
+#define SPF_CODE_NONE 5
+#define SPF_CODE_ERROR_TEMP 6
+#define SPF_CODE_ERROR_PERM 7
+#define SPF_CODE_ERROR_OTHER 0
+
 const char *EOM = "\r\n.\r\n";
 
 typedef enum {
@@ -100,6 +109,7 @@ static unsigned int deferred_recipients = 0;
 static unsigned int timeout = DEF_TIMEOUT;
 static unsigned int badness = 0;
 static bool accept_bounces = false;
+static bool spf_fail_as_permanent_error = true;
 
 char *peer;
 char myip[16];
@@ -215,6 +225,8 @@ bool check_recipient(const char *recipient)
   return result;
 }
 #endif
+
+#define MSG_TMPL_INVALID_YESNO_OPTION "invalid setting '%s' for '%s', only 'yes' or 'no' is valid"
 
 void configure()
 {
@@ -343,7 +355,14 @@ void configure()
         {
           if(EQ(value, "yes")) accept_bounces = true;
           else if(EQ(value, "no")) accept_bounces = false;
-          else syslog(LOG_WARNING, "invalid setting '%s' for 'accept_bounces', only 'yes' or 'no' is valid", value);
+          else syslog(LOG_WARNING, MSG_TMPL_INVALID_YESNO_OPTION, value, key);
+        }
+        else
+        if(strcmp(key, "spf_fail_as_permanent_error") == 0)
+        {
+          if(EQ(value, "yes")) spf_fail_as_permanent_error = true;
+          else if(EQ(value, "no")) spf_fail_as_permanent_error = false;
+          else syslog(LOG_WARNING, MSG_TMPL_INVALID_YESNO_OPTION, value, key);
         }
       }
     }
@@ -1130,26 +1149,38 @@ int main(int argc, char * * argv)
           {
             if((mail = extract_email(param))) 
             {
-                if(spf_query(peer, helo, mail, &spf_code, spf_result_str, spf_answer, spf_logtext, spf_header))
+                int response_code;
+                spf_code = 0;
+                spf_query(peer, helo, mail, &spf_code, spf_result_str, spf_answer, spf_logtext, spf_header);
+                
+                switch(spf_code)
                 {
-                	if(spf_header[0] == 0) sprintf(spf_header, "Received-SPF: %s", spf_result_str);
-					
-	        		domain = strrchr(mail, '@');	/* point to sender's domain name */
-	        		if(domain) domain++;
-	        		print(250, "sender OK");
-                }
-                else
-                {
-              		syslog(LOG_WARNING, "reject helo=%s [%s] mail_from=<%s>: %s (%s)", helo, peer, mail, spf_logtext, spf_result_str);
-              		mail = NULL;
-					print(spf_code == 6 ? 451 : 550, spf_answer);
+                    case SPF_CODE_PASS:
+                    case SPF_CODE_NEUTRAL:
+                    case SPF_CODE_SOFTFAIL:
+                    case SPF_CODE_NONE:
+                        if(spf_header[0] == 0) sprintf(spf_header, "Received-SPF: %s", spf_result_str);
+                        
+                        domain = strrchr(mail, '@');    /* point to sender's domain name */
+                        if(domain) domain++;
+                        print(250, "sender OK");
+                    break;
+                    
+                    default:
+                        response_code = 451;
+                        if(spf_fail_as_permanent_error && spf_code == SPF_CODE_FAIL) response_code = 550;
+                        
+                        syslog(LOG_WARNING, "reject helo=%s [%s] mail_from=<%s>: %s (%s)", helo, peer, mail, spf_logtext, spf_result_str);
+                        mail = NULL;
+                        print(response_code, spf_answer);
+                    break;
                 }
             }
             else if(accept_bounces && EQ(param, "<>"))
             {
-            	// it's a bounce and we want it
-            	mail = strdup("");
-            	print(250, "gimme that bounce");
+                // it's a bounce and we want it
+                mail = strdup("");
+                print(250, "gimme that bounce");
             }
             else
             {
@@ -1244,5 +1275,5 @@ int main(int argc, char * * argv)
 #endif
   return 0;
 
-  (void) &id;	/* avoid warning "id defined but not used" */
+  (void) &id;    /* avoid warning "id defined but not used" */
 }
