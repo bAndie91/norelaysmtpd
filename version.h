@@ -4,6 +4,6 @@
 const char * getpackageversion();
 
 #define PROGRAMNAME "norelaysmtpd"
-#define NORELAYSMTPD_FORK_VERSION "0.2.8"
+#define NORELAYSMTPD_FORK_VERSION "0.2.9"
 
 #endif

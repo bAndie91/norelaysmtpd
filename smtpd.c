@@ -990,8 +990,10 @@ char * get_mailname()
 	{
 		fgets(mailname, sizeof(mailname), fh);
 		fclose(fh);
+		goto mailname_ok;
 	}
 	snprintf(mailname, sizeof(mailname), hostname);
+	mailname_ok:
 	return mailname;
 }
 
