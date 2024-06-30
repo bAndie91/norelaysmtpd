@@ -88,6 +88,7 @@ static gid_t gid = (gid_t)(-1);
 static uid_t suid = (uid_t)(-1);
 static gid_t sgid = (gid_t)(-1);
 static char hostname[BUFSIZE] = "localhost";
+static char mailname[BUFSIZE];
 static char * mailboxes = DATADIR;
 #ifdef SQLITE
 static char * dbpath = "/var/cache/norelaysmtpd/db";
@@ -980,6 +981,21 @@ int spf_query(const char* ip, const char* helo, const char* mailfrom, int* code_
 }
 
 
+char * get_mailname()
+{
+	FILE * fh;
+	
+	fh = fopen("/etc/mailname", "r");
+	if(fh != NULL)
+	{
+		fgets(mailname, sizeof(mailname), fh);
+		fclose(fh);
+	}
+	snprintf(mailname, sizeof(mailname), hostname);
+	return mailname;
+}
+
+
 int main(int argc, char * * argv)
 {
   socklen_t length;
@@ -1060,7 +1076,7 @@ int main(int argc, char * * argv)
 #ifdef SQLITE
     open_db();
 #endif
-    print(220, "ready.");
+    print(220, "norelaysmtpd ready.");
 
     while(readline(line))
     {
@@ -1079,7 +1095,7 @@ int main(int argc, char * * argv)
           {
             if(helo) free(helo);
             helo = strdup(param);
-            print(250, "pleased to meet you. norelay here.");
+            print(250, get_mailname());
           }
           else
             syntax_error(line);
