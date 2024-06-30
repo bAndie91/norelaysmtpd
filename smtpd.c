@@ -371,6 +371,14 @@ void configure()
   }
 }
 
+void print_cont(int code, const char * msg)
+{
+    /* sends an smtp reply-continuation message. */
+    /* should not be used alone, but close the reply by print(). */
+    /* msg must not contain CR/LF. */
+    printf("%d-%s\r\n", code, msg);
+}
+
 void print(int code, const char * message)
 {
   char *newline = NULL;
@@ -379,7 +387,7 @@ void print(int code, const char * message)
   while((newline = strchr(message, '\n')))
   {
     msg = strndup(message, newline - message);
-    printf("%d-%s\r\n", code, msg);
+    print_cont(code, msg);
     free(msg);
     message = newline+1;
   }
@@ -1109,7 +1117,8 @@ int main(int argc, char * * argv)
             if(helo) free(helo);
             helo = strdup(param);
             esmtp = 1;
-            print(250, "pleased to meet you. norelay here.\n8BITMIME");
+            print_cont(250, get_mailname());
+            print(250, "8BITMIME");
           }
           else
             syntax_error(line);
