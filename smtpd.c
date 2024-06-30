@@ -989,7 +989,7 @@ int spf_query(const char* ip, const char* helo, const char* mailfrom, int* code_
 }
 
 
-char * get_mailname()
+char * load_mailname()
 {
 	FILE * fh;
 	
@@ -1019,7 +1019,8 @@ int main(int argc, char * * argv)
   char spf_answer[BUFSIZE+1];
   char spf_logtext[BUFSIZE+1];
   spf_header[0] = 0;
-      
+  char banner[BUFSIZE+1];
+  
   while ((c = getopt(argc, argv, "Vc:")) != -1)
    switch (c)
     {
@@ -1086,7 +1087,9 @@ int main(int argc, char * * argv)
 #ifdef SQLITE
     open_db();
 #endif
-    print(220, "norelaysmtpd ready.");
+    load_mailname();
+    snprintf(banner, sizeof(banner), "norelaysmtpd on %s is ready.", mailname);
+    print(220, banner);
 
     while(readline(line))
     {
@@ -1105,7 +1108,7 @@ int main(int argc, char * * argv)
           {
             if(helo) free(helo);
             helo = strdup(param);
-            print(250, get_mailname());
+            print(250, mailname);
           }
           else
             syntax_error(line);
@@ -1117,7 +1120,7 @@ int main(int argc, char * * argv)
             if(helo) free(helo);
             helo = strdup(param);
             esmtp = 1;
-            print_cont(250, get_mailname());
+            print_cont(250, mailname);
             print(250, "8BITMIME");
           }
           else
