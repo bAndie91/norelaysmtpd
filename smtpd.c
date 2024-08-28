@@ -1091,7 +1091,7 @@ int main(int argc, char * * argv)
   
   if(peer != NULL)
   {
-    syslog(LOG_INFO, "connection from [%s]", peer);
+    syslog(LOG_INFO, "connection from [%s] localport=%s", peer, myport);
 #ifdef SQLITE
     open_db();
 #endif
