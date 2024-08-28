@@ -73,5 +73,5 @@ version.o: version.h
 
 deb: norelaysmtpd
 	cp norelaysmtpd ../deb/usr/local/sbin/
-	sed -i ../deb/DEBIAN/control -e "s/^Version:.*/Version: `./norelaysmtpd -V`/"
+	sed -i ../deb/DEBIAN/control -e "s/^Version:.*/Version: `git describe --tags`/"
 	cd .. && mkdeb

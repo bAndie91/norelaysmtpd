@@ -505,7 +505,7 @@ void delay()
   t.tv_sec = badness * DELAY;
   t.tv_nsec = 0;
 
-  syslog(LOG_DEBUG, "suspicious client helo=%s [%s], sleeping %d seconds",  helo?helo:"<unknown>", peer, badness * DELAY);
+  syslog(LOG_DEBUG, "suspicious client helo=%s [%s], localport=%s, sleeping %d seconds",  helo?helo:"<unknown>", peer, myport, badness * DELAY);
 #if SQLITE
   clean_db();
 #endif
@@ -517,7 +517,7 @@ void suspicious(const char *line)
   badness++;
   timeout /= 2;		/* be less tolerant with bad clients */
 
-  syslog(LOG_NOTICE, "suspicious client helo=%s [%s], last command: \"%s\"",  helo?helo:"<unknown>", peer, line?line:"");
+  syslog(LOG_NOTICE, "suspicious client helo=%s [%s], localport=%s, last command: \"%s\"",  helo?helo:"<unknown>", peer, myport, line?line:"");
 }
 
 void syntax_error(const char *line)
@@ -600,7 +600,7 @@ bool in_recipients(char *to)
   {
     if(samefile(to, r->email))
     {
-      syslog(LOG_INFO, "duplicate message: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, delivered-to=<%s>", helo, peer, id, mail, to, r->email);
+      syslog(LOG_INFO, "duplicate message: helo=%s [%s], localport=%s, id=%s, return-path=<%s>, to=<%s>, delivered-to=<%s>", helo, peer, myport, id, mail, to, r->email);
       return true;
     }
     r = r->next;
@@ -663,7 +663,7 @@ bool add_recipient(char *to)
     unsigned int code;
     drop_privileges();
     code = (errno==ENOENT)?550:451;
-    syslog(LOG_INFO, "%s helo=%s [%s]: from=<%s>, to=<%s>: %s", code==550?"catch":"reject", helo, peer, mail, to, code==550?"no such mailbox":strerror(errno));
+    syslog(LOG_INFO, "%s helo=%s [%s]: localport=%s, from=<%s>, to=<%s>: %s", code==550?"catch":"reject", helo, peer, myport, mail, to, code==550?"no such mailbox":strerror(errno));
     if(code==550) {
       if(auto_mkmaildir) {
         /* unsafe chars here (single- and double-quote, space, slash) are rejected in <to>, so we're good to go */
@@ -787,9 +787,9 @@ bool free_recipients()
       if(size)
       {
         if(ok_write && ok_close && ok_link)
-          syslog(LOG_INFO, "message delivered: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d", helo, peer, id, mail, r->email, size);
+          syslog(LOG_INFO, "message delivered: helo=%s [%s], localport=%s, id=%s, return-path=<%s>, to=<%s>, size=%d", helo, peer, myport, id, mail, r->email, size);
         else
-          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], id=%s, return-path=<%s>, to=<%s>, size=%d: %s", helo, peer, id, mail, r->email, size, strerror(errno));
+          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], localport=%s, id=%s, return-path=<%s>, to=<%s>, size=%d: %s", helo, peer, myport, id, mail, r->email, size, strerror(errno));
       }
       unlink(r->mboxname);
       drop_privileges();
@@ -1208,7 +1208,7 @@ int main(int argc, char * * argv)
                         response_code = 451;
                         if(spf_fail_as_permanent_error && spf_code == SPF_CODE_FAIL) response_code = 550;
                         
-                        syslog(LOG_WARNING, "reject helo=%s [%s] mail_from=<%s>: %s (%s)", helo, peer, mail, spf_logtext, spf_result_str);
+                        syslog(LOG_WARNING, "reject helo=%s [%s] localport=%s, mail_from=<%s>: %s (%s)", helo, peer, myport, mail, spf_logtext, spf_result_str);
                         mail = NULL;
                         print(response_code, spf_answer);
                     break;
@@ -1223,8 +1223,7 @@ int main(int argc, char * * argv)
             else
             {
               suspicious(line);
-              //syslog(LOG_INFO, "reject helo=%s [%s]: invalid return-path: %s", helo, inet_ntoa(remote.sin_addr), mail);
-              syslog(LOG_INFO, "reject helo=%s [%s]: invalid return-path", helo, peer);
+              syslog(LOG_INFO, "reject helo=%s [%s] localport=%s: invalid return-path: %s", helo, peer, myport, mail);
               print(501, "invalid return-path");
             }
           }
@@ -1281,7 +1280,7 @@ int main(int argc, char * * argv)
             syntax_error(line);
           else
           {
-            syslog(LOG_INFO, "client helo=%s [%s] disconnected. %d %s (%d valid, %d deferred).",  helo?helo:"<unknown>", peer, valid_recipients+invalid_recipients+deferred_recipients, (valid_recipients+invalid_recipients>1)?"recipients":"recipient", valid_recipients, deferred_recipients);
+            syslog(LOG_INFO, "client helo=%s [%s] disconnected localport=%s recipients=%d (%d valid, %d deferred).",  helo?helo:"<unknown>", peer, myport, valid_recipients+invalid_recipients+deferred_recipients, valid_recipients, deferred_recipients);
             cleanup();
             print(221, "bye.");
 #ifdef SQLITE
@@ -1295,7 +1294,7 @@ int main(int argc, char * * argv)
           protocol_error(line);
       }
     }
-    syslog(LOG_NOTICE, "client helo=%s [%s] dropped connection.", helo?helo:"<unknown>", peer);
+    syslog(LOG_NOTICE, "client helo=%s [%s] localport=%s dropped connection.", helo?helo:"<unknown>", peer, myport);
 #ifdef SQLITE
     clean_db();
     badclient_db();
