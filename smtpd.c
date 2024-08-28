@@ -114,6 +114,7 @@ static bool spf_fail_as_permanent_error = true;
 
 char *peer;
 char myip[16];
+char myport[6];
 char spf_header[BUFSIZE+1];
 
 #ifdef SQLITE
@@ -569,7 +570,7 @@ void trace_headers(recipient *r)
   fprintf(r->mailbox, "Return-Path: <%s>\r\n", mail);
   fprintf(r->mailbox, "Delivered-To: %s\r\n", r->email);
   fprintf(r->mailbox, "Received: from helo=%s [%s]\r\n", helo, peer);
-  fprintf(r->mailbox, "\tby %s [%s] with %s (%s %s) id %s\r\n", hostname, myip, esmtp?"ESMTP":"SMTP", PROGRAMNAME, getpackageversion(), id);
+  fprintf(r->mailbox, "\tby %s [%s]:%s with %s (%s %s) id %s\r\n", hostname, myip, myport, esmtp?"ESMTP":"SMTP", PROGRAMNAME, getpackageversion(), id);
   fprintf(r->mailbox, "\tfor %s; %s", r->rcpt_to, date);
   
   if(spf_header[0]!=0) fprintf(r->mailbox, "\r\n%s", spf_header);
@@ -903,10 +904,10 @@ int spf_query(const char* ip, const char* helo, const char* mailfrom, int* code_
 	int spf_info_len;
 	int pd0[2];
 	int pd1[2];
-	FILE* reader0;
-	FILE* writer0;
+	//FILE* reader0;
+	//FILE* writer0;
 	FILE* reader1;
-	FILE* writer1;
+	//FILE* writer1;
 	char* spf_cmd = "spfquery";
 	char* spf_arg_list[] = {
 		spf_cmd,     /* argv[0], the name of the program. */
@@ -916,16 +917,16 @@ int spf_query(const char* ip, const char* helo, const char* mailfrom, int* code_
 	sprintf(result_str, "%s", "error");
 	sprintf(logtext, "%s: exec failed", spf_cmd);
 	sprintf(answer, "%s", "temporary error");
-	sprintf(header, "");
+	sprintf(header, "%s", "");
 	int in_error_block = 0;
 	int line_no = 0;
 	
 	pipe(pd0);	// smtpd -> spfquery
 	pipe(pd1);	// spfquery -> smtpd
-	reader0 = fdopen(pd0[0], "r");
-	writer0 = fdopen(pd0[1], "w");
+	//reader0 = fdopen(pd0[0], "r");
+	//writer0 = fdopen(pd0[1], "w");
 	reader1 = fdopen(pd1[0], "r");
-	writer1 = fdopen(pd1[1], "w");
+	//writer1 = fdopen(pd1[1], "w");
 	
 	kid = fork();
 	if(kid == 0)
@@ -1059,12 +1060,19 @@ int main(int argc, char * * argv)
   if(gethostname(hostname, sizeof(hostname)) != 0)
     snprintf(hostname, sizeof(hostname), "localhost");
 
-  sprintf(myip, "%s\0", "<unknown>");
+  sprintf(myip, "%s", "<unknown>");
+  sprintf(myport, "%s", "???");
 
   length = sizeof(remote_end);
   if(getsockname(0, (struct sockaddr*)&remote_end, &length) == 0)
   {
-    sprintf(myip, "%s\0", inet_ntop(AF_INET, &remote_end.sin_addr, myip, 16));
+    sprintf(myip, "%s", inet_ntop(AF_INET, &remote_end.sin_addr, myip, 16));
+    snprintf(myport, 6, "%d", ntohs(remote_end.sin_port));
+  }
+  
+  if(getenv("TCPLOCALPORT") != NULL)
+  {
+    snprintf(myport, 6, "%s", getenv("TCPLOCALPORT"));
   }
   
   peer = getenv("REMOTE_HOST");
@@ -1075,7 +1083,7 @@ int main(int argc, char * * argv)
     {
       if(getpeername(0, (struct sockaddr*)&remote_end, &length) == 0)
       {
-        sprintf(p, "%s\0", inet_ntoa(remote_end.sin_addr));
+        sprintf(p, "%s", inet_ntoa(remote_end.sin_addr));
         peer = p;
       }
     }
