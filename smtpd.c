@@ -1181,13 +1181,19 @@ int main(int argc, char * * argv)
               #define TOSTR(x) STRINGIFY(x)
               if(sscanf(param, "ADDR=%" TOSTR(INET6_ADDRSTRLEN) "s NAME=%127s", xclient_addr, xclient_name) == 2)
               {
+                syslog(LOG_NOTICE, "update peer address by XCLIENT command: helo=%s [%s] localport=%s: %s", helo, peer, myport, xclient_addr);
               	peer = xclient_addr;
               	// TODO extract myport from xclient_name
+              }
+              else
+              {
+                syslog(LOG_DEBUG, "can not parse XCLIENT parameters: helo=%s [%s] localport=%s: %s", helo, peer, myport, param);
               }
               print(250, "OK");
             }
             else
             {
+              syslog(LOG_WARNING, "failed XCLIENT command: helo=%s [%s] localport=%s: peer not trusted, params: %s", helo, peer, myport, param);
               print(503, "not trusted.");
             }
           }
