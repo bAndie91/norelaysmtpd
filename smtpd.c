@@ -53,6 +53,7 @@ typedef enum {
 	RCPT,
 	RSET,
 	VRFY,
+	XCLIENT,
 	__UNKNOWN__,
 	} smtp_verbs;
 
@@ -69,6 +70,7 @@ static char *smtp_commands[] = {
 	"RCPT TO:",
 	"RSET",
 	"VRFY",
+	"XCLIENT",
 	NULL};
 
 typedef struct _to {
@@ -1165,6 +1167,32 @@ int main(int argc, char * * argv)
           }
           break;
 
+        case XCLIENT:
+          if(!param)
+            syntax_error(line);
+          else
+          {
+            /* TODO generalize, put these in config parameters */
+            if(EQ(peer, "127.0.0.1") && EQ(myport, "8025"))
+            {
+              char xclient_addr[INET6_ADDRSTRLEN+1];
+              char xclient_name[128];
+              #define STRINGIFY(x) #x
+              #define TOSTR(x) STRINGIFY(x)
+              if(sscanf(param, "ADDR=%" TOSTR(INET6_ADDRSTRLEN) "s NAME=%127s", xclient_addr, xclient_name) == 2)
+              {
+              	peer = xclient_addr;
+              	// TODO extract myport from xclient_name
+              }
+              print(250, "OK");
+            }
+            else
+            {
+              print(503, "not trusted.");
+            }
+          }
+          break;
+        
         case NOOP:
           if(param)
             syntax_error(line);
