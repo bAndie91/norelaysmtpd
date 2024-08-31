@@ -1176,14 +1176,12 @@ int main(int argc, char * * argv)
             if(EQ(peer, "127.0.0.1") && EQ(myport, "8025"))
             {
               char xclient_addr[INET6_ADDRSTRLEN+1];
-              char xclient_name[128];
               #define STRINGIFY(x) #x
               #define TOSTR(x) STRINGIFY(x)
-              if(sscanf(param, "ADDR=%" TOSTR(INET6_ADDRSTRLEN) "s NAME=%127s", xclient_addr, xclient_name) == 2)
+              if(sscanf(param, "ADDR=%" TOSTR(INET6_ADDRSTRLEN) "s", xclient_addr) == 1)
               {
                 syslog(LOG_NOTICE, "update peer address by XCLIENT command: helo=%s [%s] localport=%s: %s", helo, peer, myport, xclient_addr);
               	peer = xclient_addr;
-              	// TODO extract myport from xclient_name
               }
               else
               {
