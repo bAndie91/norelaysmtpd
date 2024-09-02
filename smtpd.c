@@ -586,7 +586,8 @@ void trace_headers(recipient *r)
   strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S %z (%Z)", localtime(&now));
   fprintf(r->mailbox, "Return-Path: <%s>\r\n", mail);
   fprintf(r->mailbox, "Delivered-To: %s\r\n", r->email);
-  fprintf(r->mailbox, "Received: from helo=%s [%s] via %s\r\n", helo, peer, peer_tls_info);
+  fprintf(r->mailbox, "Received: from helo=%s [%s]\r\n", helo, peer);
+  fprintf(r->mailbox, "\tusing %s\r\n", peer_tls_info);
   fprintf(r->mailbox, "\tby %s [%s]:%s with %s (%s %s) id %s\r\n", hostname, myip, myport, esmtp?"ESMTP":"SMTP", PROGRAMNAME, getpackageversion(), id);
   fprintf(r->mailbox, "\tfor %s; %s", r->rcpt_to, date);
   
