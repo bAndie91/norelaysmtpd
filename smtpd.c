@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <time.h>
 #include <stdbool.h>
+#include <stdarg.h>
 
 #include "config.h"
 #include "version.h"
@@ -117,7 +118,21 @@ static bool spf_fail_as_permanent_error = true;
 char *peer;
 char myip[16];
 char myport[6];
+char *peer_tls_info;
 char spf_header[BUFSIZE+1];
+
+
+unsigned int strmatch(const char * s, const char * startmatch, const char * fmt, ...)
+{
+	char * scanstr;
+	scanstr = strstr(s, startmatch);
+	if(scanstr == NULL) return 0;
+	va_list varargs;
+	va_start(varargs, fmt);
+	int matched = vsscanf(scanstr, fmt, varargs);
+	va_end(varargs);
+	return matched;
+}
 
 #ifdef SQLITE
 bool open_db()
@@ -571,7 +586,7 @@ void trace_headers(recipient *r)
   strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S %z (%Z)", localtime(&now));
   fprintf(r->mailbox, "Return-Path: <%s>\r\n", mail);
   fprintf(r->mailbox, "Delivered-To: %s\r\n", r->email);
-  fprintf(r->mailbox, "Received: from helo=%s [%s]\r\n", helo, peer);
+  fprintf(r->mailbox, "Received: from helo=%s [%s] via %s\r\n", helo, peer, peer_tls_info);
   fprintf(r->mailbox, "\tby %s [%s]:%s with %s (%s %s) id %s\r\n", hostname, myip, myport, esmtp?"ESMTP":"SMTP", PROGRAMNAME, getpackageversion(), id);
   fprintf(r->mailbox, "\tfor %s; %s", r->rcpt_to, date);
   
@@ -890,6 +905,7 @@ void cleanup()
   esmtp = false;
   size = 0;
   newid();
+  // TODO probably need to reset peer and/or myport (to allow subsequent XCLIENT commands)
 }
 
 void usage()
@@ -1077,6 +1093,8 @@ int main(int argc, char * * argv)
     snprintf(myport, 6, "%s", getenv("TCPLOCALPORT"));
   }
   
+  peer_tls_info = getenv("CONNECTION_TLS_INFO");  /* can be NULL */
+  
   peer = getenv("REMOTE_HOST");
   if(peer == NULL)
   {
@@ -1170,29 +1188,43 @@ int main(int argc, char * * argv)
         case XCLIENT:
           if(!param)
             syntax_error(line);
+          else if (mail)
+            print(503, "too late.");
           else
           {
-            /* TODO generalize, put these in config parameters */
-            if(EQ(peer, "127.0.0.1") && EQ(myport, "8025"))
+            /* TODO generalize, put trusted remote IPs in config parameters */
+            if(EQ(peer, "127.0.0.1"))
             {
-              char xclient_addr[INET6_ADDRSTRLEN+1];
+              char xclient_addr[INET6_ADDRSTRLEN + 5 + 1];
               #define STRINGIFY(x) #x
               #define TOSTR(x) STRINGIFY(x)
-              if(sscanf(param, "ADDR=%" TOSTR(INET6_ADDRSTRLEN) "s", xclient_addr) == 1)
+              if(strmatch(param, "ADDR=", "ADDR=%" TOSTR(INET6_ADDRSTRLEN+5) "s", xclient_addr) == 1)
               {
                 syslog(LOG_NOTICE, "update peer address by XCLIENT command: helo=%s [%s] localport=%s: %s", helo, peer, myport, xclient_addr);
               	peer = xclient_addr;
+              	
+              	char xclient_destport[6];
+              	if(strmatch(param, "DESTPORT=", "DESTPORT=%5s", xclient_destport) == 1)
+              	{
+              	  syslog(LOG_NOTICE, "update local port number by XCLIENT command: helo=%s [%s] localport=%s: %s", helo, peer, myport, xclient_destport);
+              	  snprintf(myport, 6, "%s", xclient_destport);
+              	}
+              	char xclient_tlsinfo[1025];
+              	if(strmatch(param, "TLSINFO=", "TLSINFO=%1024s", xclient_tlsinfo) == 1)
+              	{
+              	  peer_tls_info = xclient_tlsinfo;
+              	}
               }
               else
               {
                 syslog(LOG_DEBUG, "can not parse XCLIENT parameters: helo=%s [%s] localport=%s: %s", helo, peer, myport, param);
               }
-              print(250, "OK");
+              print(220, "OK");
             }
             else
             {
               syslog(LOG_WARNING, "failed XCLIENT command: helo=%s [%s] localport=%s: peer not trusted, params: %s", helo, peer, myport, param);
-              print(503, "not trusted.");
+              print(550, "not trusted.");
             }
           }
           break;
