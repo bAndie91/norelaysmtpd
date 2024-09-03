@@ -1016,11 +1016,11 @@ char * load_mailname()
 	fh = fopen("/etc/mailname", "r");
 	if(fh != NULL)
 	{
-		fgets(mailname, sizeof(mailname), fh);
+		fgets(mailname, sizeof(mailname)-1, fh);
 		fclose(fh);
 		goto mailname_ok;
 	}
-	snprintf(mailname, sizeof(mailname), hostname);
+	snprintf(mailname, sizeof(mailname)-1, hostname);
 	mailname_ok:
 	return mailname;
 }
@@ -1077,7 +1077,7 @@ int main(int argc, char * * argv)
   newid();
   
   if(gethostname(hostname, sizeof(hostname)) != 0)
-    snprintf(hostname, sizeof(hostname), "localhost");
+    snprintf(hostname, sizeof(hostname)-1, "localhost");
 
   sprintf(myip, "%s", "<unknown>");
   sprintf(myport, "%s", "???");
