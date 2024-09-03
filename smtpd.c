@@ -1196,10 +1196,13 @@ int main(int argc, char * * argv)
             /* TODO generalize, put trusted remote IPs in config parameters */
             if(EQ(peer, "127.0.0.1"))
             {
-              char xclient_addr[INET6_ADDRSTRLEN + 5 + 1];
-              #define STRINGIFY(x) #x
-              #define TOSTR(x) STRINGIFY(x)
-              if(strmatch(param, "ADDR=", "ADDR=%" TOSTR(INET6_ADDRSTRLEN+5) "s", xclient_addr) == 1)
+              /* optional "IPv6:" prefix, and "[" and "]" */
+              #define XCLIENT_ADDR_MAXLEN (INET6_ADDRSTRLEN + 5 + 2)
+              char xclient_addr[XCLIENT_ADDR_MAXLEN + 1];
+              char xclient_addr_fmt[10];
+              sprintf(xclient_addr_fmt, "ADDR=%%%ds", XCLIENT_ADDR_MAXLEN);
+              
+              if(strmatch(param, "ADDR=", xclient_addr_fmt, xclient_addr) == 1)
               {
                 syslog(LOG_NOTICE, "update peer address by XCLIENT command: helo=%s [%s] localport=%s: %s", helo, peer, myport, xclient_addr);
               	peer = xclient_addr;
