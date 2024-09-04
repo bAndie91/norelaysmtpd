@@ -1135,7 +1135,10 @@ int main(int argc, char * * argv)
         case HELO:
           if(param && strchr(param, ' ') == NULL)
           {
-            if(helo) free(helo);
+            if(helo) {
+              syslog(LOG_NOTICE, "update HELO name: helo=%s [%s] localport=%s: %s", helo, peer, myport, param);
+              free(helo);
+            }
             helo = strdup(param);
             print(250, mailname);
           }
@@ -1146,7 +1149,10 @@ int main(int argc, char * * argv)
         case EHLO:
           if(param && strchr(param, ' ') == NULL)
           {
-            if(helo) free(helo);
+            if(helo) {
+              syslog(LOG_NOTICE, "update EHLO name: helo=%s [%s] localport=%s: %s", helo, peer, myport, param);
+              free(helo);
+            }
             helo = strdup(param);
             esmtp = 1;
             print_cont(250, mailname);
@@ -1245,7 +1251,7 @@ int main(int argc, char * * argv)
         case HELP:
           suspicious(line);
             if(!param)
-              print(214, "supported commands:\n    HELO    EHLO    MAIL    RCPT    DATA\n    RSET    NOOP    QUIT    HELP    VRFY\n    EXPN");
+              print(214, "supported commands:\n    HELO    EHLO    MAIL    RCPT    DATA\n    RSET    NOOP    QUIT    HELP    VRFY\n    EXPN    XCLIENT");
             else
               print(504, "use \"HELP\" to get a list of supported commands.");
           break;
