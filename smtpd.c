@@ -113,7 +113,14 @@ static unsigned int deferred_recipients = 0;
 static unsigned int timeout = DEF_TIMEOUT;
 static unsigned int badness = 0;
 static bool accept_bounces = false;
-static bool spf_fail_as_permanent_error = true;
+static bool spf_fail_as_permanent_error = false;
+	// only SPF_CODE_FAIL can cause SMTP error 5xx,
+	// others are 4xx or 2xx
+static char * spfquery_accepted_codes = "1257";
+	// maybe add 4 (softfail) as well ("~all" induces softfail).
+	// code 6 should not occur to as because a spfquery wrapper is supposed to retry, but not enough attempts may pass 6 to us, still it will induce SMTP 4xx.
+	// code 7 usually happens on faulty DNS record.
+	// code 0 may occour on unexpected exceptions in spfquery
 
 char *peer;
 char myip[16];
@@ -382,6 +389,11 @@ void configure()
           if(EQ(value, "yes")) spf_fail_as_permanent_error = true;
           else if(EQ(value, "no")) spf_fail_as_permanent_error = false;
           else syslog(LOG_WARNING, MSG_TMPL_INVALID_YESNO_OPTION, value, key);
+        }
+        else
+        if(strcmp(key, "spfquery_accepted_codes") == 0)
+        {
+	  spfquery_accepted_codes = strdup(value);
         }
       }
     }
@@ -1004,8 +1016,12 @@ int spf_query(const char* ip, const char* helo, const char* mailfrom, int* code_
 	0 other errors, eg. invalid record
 	*/
 	if(answer[0]==0) sprintf(answer, "spf verify %s", result_str);
-	if(*code_p == 1 || *code_p == 2 || *code_p == 5 || /* "~all" gives softfail */ *code_p == 4) return 1;
-	return 0;
+	char code_digit = '0' + *code_p;
+	//debug//fprintf(stderr, "code %d chr %c accepted '%s'\n", *code_p, code_digit, spfquery_accepted_codes);
+	if(strchr(spfquery_accepted_codes, code_digit) != NULL)
+		return 1; // spf accept
+	else
+		return 0; // do not accept
 }
 
 
@@ -1263,29 +1279,24 @@ int main(int argc, char * * argv)
             {
                 int response_code;
                 spf_code = 0;
-                spf_query(peer, helo, mail, &spf_code, spf_result_str, spf_answer, spf_logtext, spf_header);
+                int spf_accept = spf_query(peer, helo, mail, &spf_code, spf_result_str, spf_answer, spf_logtext, spf_header);
                 
-                switch(spf_code)
+                if(spf_accept)
                 {
-                    case SPF_CODE_PASS:
-                    case SPF_CODE_NEUTRAL:
-                    case SPF_CODE_SOFTFAIL:
-                    case SPF_CODE_NONE:
                         if(spf_header[0] == 0) sprintf(spf_header, "Received-SPF: %s", spf_result_str);
                         
                         domain = strrchr(mail, '@');    /* point to sender's domain name */
                         if(domain) domain++;
                         print(250, "sender OK");
-                    break;
-                    
-                    default:
+                }
+                else
+                {
                         response_code = 451;
                         if(spf_fail_as_permanent_error && spf_code == SPF_CODE_FAIL) response_code = 550;
                         
                         syslog(LOG_WARNING, "reject helo=%s [%s] localport=%s, mail_from=<%s>: %s (%s)", helo, peer, myport, mail, spf_logtext, spf_result_str);
                         mail = NULL;
                         print(response_code, spf_answer);
-                    break;
                 }
             }
             else if(accept_bounces && EQ(param, "<>"))
