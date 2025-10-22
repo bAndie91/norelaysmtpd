@@ -2,8 +2,7 @@ PACKAGENAME = norelaysmtpd
 SNAPSHOT=0.`cat .timestamp`
 
 DESTDIR=/
-PREFIX=/usr
-LIBDIR=$(PREFIX)/lib/$(PACKAGENAME)
+PREFIX=$(DESTDIR)usr/local
 SBINDIR=$(PREFIX)/sbin
 SYSCONFDIR=/etc
 MANDIR=$(PREFIX)/share/man
@@ -26,19 +25,6 @@ all: $(PACKAGENAME)
 $(PACKAGENAME): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(LIBS) $^
 
-$(PACKAGENAME).8: $(PACKAGENAME).sgml
-	docbook2man $<
-
-install: all
-	-mkdir -p $(DESTDIR)
-	-mkdir -p $(DESTDIR)/$(SYSCONFDIR)
-	cp $(PACKAGENAME).conf $(DESTDIR)/$(SYSCONFDIR)
-	-mkdir -p $(DESTDIR)/$(LIBDIR)/$(PACKAGENAME)
-	-mkdir -p $(DESTDIR)/$(SBINDIR)
-	cp $(PACKAGENAME) $(DESTDIR)/$(SBINDIR)
-	-mkdir -p $(DESTDIR)/$(MANDIR)/man8
-	cp $(PACKAGENAME).8 $(DESTDIR)/$(MANDIR)/man8
-	
 clean:
 	rm -f $(OBJS) $(PACKAGENAME) core Makefile.bak manpage.links manpage.refs
 
@@ -71,7 +57,26 @@ depend:
 popdns.o: config.h version.h
 version.o: version.h
 
-deb: norelaysmtpd
-	cp norelaysmtpd ../deb/usr/local/sbin/
-	sed -i ../deb/DEBIAN/control -e "s/^Version:.*/Version: `git describe --tags`/"
-	cd .. && mkdeb
+install-local: \
+  $(SBINDIR)/$(PACKAGENAME) \
+  $(SYSCONFDIR)/$(PACKAGENAME).conf \
+  $(MANDIR)/man8/$(PACKAGENAME).8.gz
+
+$(SBINDIR)/$(PACKAGENAME): $(PACKAGENAME)
+	mkdir -p $(dir $@)
+	install $< $@
+
+$(MANDIR)/man8/$(PACKAGENAME).8.gz: smtpd.8
+	mkdir -p $(dir $@)
+	cat $< | gzip > $@~
+	mv $@~ $@
+
+# do not overwrite config file if already exists
+$(SYSCONFDIR)/$(PACKAGENAME).conf:
+	mkdir -p $(dir $@)
+	cp smtpd.conf $@
+
+uninstall-local:
+	-rm $(SBINDIR)/$(PACKAGENAME) \
+	    $(SYSCONFDIR)/$(PACKAGENAME).conf \
+	    $(MANDIR)/man8/$(PACKAGENAME).8.gz

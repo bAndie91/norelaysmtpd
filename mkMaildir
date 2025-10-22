@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -e
+set -u
+
+email=$1
+mailadmin_grp=mailadmin
+[ -z "$2" ] && user=$1 || user=$2
+install -v -o "$user" -g "$mailadmin_grp" -m 0750 -d /var/spool/norelaysmtpd/$email/{,new,cur,tmp}
