@@ -40,6 +40,11 @@
 #define SPF_CODE_ERROR_PERM 7
 #define SPF_CODE_ERROR_OTHER 0
 
+#ifdef SYSLOG_IS_STDERR
+#define syslog(lvl, fmt, ...) fprintf(stderr, fmt "\n", ##__VA_ARGS__)
+#endif
+
+
 const char *EOM = "\r\n.\r\n";
 
 typedef enum {
@@ -482,6 +487,7 @@ int parse_line(char *line, char **param)
   return v;
 }
 
+/* maybe use later:
 char *lowercase(char *s)
 {
   size_t i = 0;
@@ -492,6 +498,7 @@ char *lowercase(char *s)
 
   return s;
 }
+*/
 
 int valid(const char *address)
 {
@@ -521,7 +528,12 @@ char *extract_email(char *param)
     return NULL;
   }
 
-  return lowercase(strdup(bra));
+  // earlier, it transformed email address to all-lowercase.
+  // but RFC allows email address local part to be case-sensitive (alas virtually nobody assumes this; we do).
+  // and domain names, in domain part, are already handled gracefully by the DNS-related programms.
+  // altough later in the filesystem-related subroutines, we may transform the letter casing,
+  // but just for filesystems paths derived from email addresses.
+  return strdup(bra);
 }
 
 void delay()
@@ -1034,6 +1046,8 @@ char * load_mailname()
 	{
 		fgets(mailname, sizeof(mailname)-1, fh);
 		fclose(fh);
+		char *nl = strchrnul(mailname, '\n');
+		*nl = '\0';
 		goto mailname_ok;
 	}
 	snprintf(mailname, sizeof(mailname)-1, hostname);
@@ -1275,7 +1289,12 @@ int main(int argc, char * * argv)
         case MAIL:
           if(!mail && helo && param)
           {
-            if((mail = extract_email(param))) 
+          	// take only the first token, ie. the email address from the "MAIL FROM:" line.
+          	// there may be subsequent parameters after a space, like "SIZE=", etc.
+          	char * param_sep = strchrnul(param, ' ');
+          	char * mail_from = strndup(param, param_sep - param);
+          	
+            if((mail = extract_email(mail_from))) 
             {
                 int response_code;
                 spf_code = 0;
@@ -1299,7 +1318,7 @@ int main(int argc, char * * argv)
                         print(response_code, spf_answer);
                 }
             }
-            else if(accept_bounces && EQ(param, "<>"))
+            else if(accept_bounces && EQ(mail_from, "<>"))
             {
                 // it's a bounce and we want it
                 mail = strdup("");
