@@ -642,7 +642,7 @@ bool in_recipients(char *to)
   {
     if(samefile(to, r->email))
     {
-      syslog(LOG_INFO, "duplicate message: helo=%s [%s], localport=%s, id=%s, return-path=<%s>, to=<%s>, delivered-to=<%s>", helo, peer, myport, id, mail, to, r->email);
+      syslog(LOG_INFO, "duplicate message: helo=%s [%s], localport=%s, id=%s, mail_from=<%s>, to=<%s>, delivered-to=<%s>", helo, peer, myport, id, mail, to, r->email);
       return true;
     }
     r = r->next;
@@ -705,7 +705,7 @@ bool add_recipient(char *to)
     unsigned int code;
     drop_privileges();
     code = (errno==ENOENT)?550:451;
-    syslog(LOG_INFO, "%s helo=%s [%s]: localport=%s, from=<%s>, to=<%s>: %s", code==550?"catch":"reject", helo, peer, myport, mail, to, code==550?"no such mailbox":strerror(errno));
+    syslog(LOG_INFO, "%s helo=%s [%s]: localport=%s, mail_from=<%s>, to=<%s>: %s", code==550?"catch":"reject", helo, peer, myport, mail, to, code==550?"no such mailbox":strerror(errno));
     if(code==550) {
       if(auto_mkmaildir) {
         /* unsafe chars here (single- and double-quote, space, slash) are rejected in <to>, so we're good to go */
@@ -751,7 +751,7 @@ bool add_recipient(char *to)
   update_db(to);
   if(!check_recipient(to))
   {
-    syslog(LOG_INFO, "greylisted helo=%s [%s]: from=<%s>, to=<%s>", helo, peer, mail, to);
+    syslog(LOG_INFO, "greylisted helo=%s [%s]: mail_from=<%s>, to=<%s>", helo, peer, mail, to);
     print(450, "you are being put on waiting list, come back later");
     deferred_recipients++;
     return false;
@@ -829,9 +829,9 @@ bool free_recipients()
       if(size)
       {
         if(ok_write && ok_close && ok_link)
-          syslog(LOG_INFO, "message delivered: helo=%s [%s], localport=%s, id=%s, return-path=<%s>, to=<%s>, size=%d", helo, peer, myport, id, mail, r->email, size);
+          syslog(LOG_INFO, "message delivered: helo=%s [%s], localport=%s, id=%s, mail_from=<%s>, to=<%s>, size=%d", helo, peer, myport, id, mail, r->email, size);
         else
-          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], localport=%s, id=%s, return-path=<%s>, to=<%s>, size=%d: %s", helo, peer, myport, id, mail, r->email, size, strerror(errno));
+          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], localport=%s, id=%s, mail_from=<%s>, to=<%s>, size=%d: %s", helo, peer, myport, id, mail, r->email, size, strerror(errno));
       }
       unlink(r->mboxname);
       drop_privileges();
@@ -1327,7 +1327,7 @@ int main(int argc, char * * argv)
             else
             {
               suspicious(line);
-              syslog(LOG_INFO, "reject helo=%s [%s] localport=%s: invalid return-path: %s", helo, peer, myport, mail);
+              syslog(LOG_INFO, "reject helo=%s [%s] localport=%s: invalid mail_from: %s", helo, peer, myport, mail);
               print(501, "invalid return-path");
             }
           }
