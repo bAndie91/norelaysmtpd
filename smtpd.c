@@ -27,7 +27,7 @@
 #define DEF_OLD 30
 #define DELAY 5
 #define MAXTRY 3
-#define SAFECHARS "@0123456789+-._abcdefghijklmnopqrstuvwxyz"
+#define SAFECHARS "@0123456789+-.,_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 #define EQ(a, b) (strcmp(a, b)==0)
 
