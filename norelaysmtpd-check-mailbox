@@ -1,0 +1,3 @@
+#!/bin/bash
+# this is just to test and debug the check_mailbox_prehook_cmd configuration
+env |sort >/tmp/a

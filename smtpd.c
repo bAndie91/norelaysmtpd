@@ -18,6 +18,7 @@
 #include <time.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <limits.h>
 
 #include "config.h"
 #include "version.h"
@@ -98,6 +99,7 @@ static gid_t sgid = (gid_t)(-1);
 static char hostname[BUFSIZE] = "localhost";
 static char mailname[BUFSIZE];
 static char *mailboxes = DATADIR;
+static char *check_mailbox_prehook_cmd = NULL;
 #ifdef SQLITE
 static char *dbpath = "/var/cache/norelaysmtpd/db";
 static sqlite3 *db = NULL;
@@ -324,9 +326,26 @@ void configure()
         {
           mailboxes = strdup(value);
         }
+        else if (strcmp(key, "check_mailbox_prehook_cmd") == 0)
+        {
+          char resolved_path[PATH_MAX];
+          char *result = realpath(value, resolved_path);
+          if (result == NULL)
+          {
+            syslog(LOG_ERR, "can not resolve check_mailbox_prehook_cmd path '%s': %s", value, strerror(errno));
+            exit(1);
+          }
+          else if (access(resolved_path, X_OK) != 0)
+          {
+            syslog(LOG_ERR, "check_mailbox_prehook_cmd path '%s' is not executable: %s", resolved_path, strerror(errno));
+            exit(1);
+          }
+          syslog(LOG_DEBUG, "check_mailbox_prehook_cmd path: %s", resolved_path);
+          check_mailbox_prehook_cmd = strdup(resolved_path);
+        }
         else
 #ifdef SQLITE
-            if (strcmp(key, "database") == 0)
+        if (strcmp(key, "database") == 0)
         {
           dbpath = strdup(value);
         }
@@ -352,7 +371,7 @@ void configure()
         }
         else
 #endif
-            if (strcmp(key, "user") == 0)
+        if (strcmp(key, "user") == 0)
         {
           struct passwd *pwent = NULL;
 
@@ -711,6 +730,47 @@ stat:
   // debug//fprintf(stderr, "[%s] [%s] [%s]\n", to, localpart, domainpart);
 
   raise_privileges();
+
+  /* run check-mailbox-prehook if configured */
+  if (check_mailbox_prehook_cmd)
+  {
+    pid_t hook_pid;
+    int hook_status;
+
+    hook_pid = fork();
+    if (hook_pid == 0)
+    {
+      close(0);
+      close(1);
+
+      /* child process: set environment variables and execute hook */
+      setenv("SMTPD_PEER_IP", peer ? peer : "", 1);
+      setenv("SMTPD_HELO", helo ? helo : "", 1);
+      setenv("SMTPD_MAIL_FROM", mail ? mail : "", 1);
+      setenv("SMTPD_RCPT_TO", to ? to : "", 1);
+      setenv("SMTPD_MYIP", myip, 1);
+      setenv("SMTPD_MYPORT", myport, 1);
+      setenv("SMTPD_CLIENT_TLS_INFO", peer_tls_info ? peer_tls_info : "", 1);
+      setenv("SMTPD_MAILBOXES_DIR", mailboxes, 1);
+
+      execvp(check_mailbox_prehook_cmd, (char *[]){ check_mailbox_prehook_cmd, NULL });
+      _exit(127);
+    }
+    else if (hook_pid > 0)
+    {
+      /* parent process: wait for hook to complete */
+      waitpid(hook_pid, &hook_status, 0);
+      if (!(WIFEXITED(hook_status) && WEXITSTATUS(hook_status) == 0))
+        syslog(LOG_WARNING, "check_mailbox_prehook_cmd error %d (signal %d) for to=<%s>", WEXITSTATUS(hook_status), WTERMSIG(hook_status), to);
+    }
+    else
+    {
+      syslog(LOG_ERR, "check mailbox prehook failed: fork: %s", strerror(errno));
+      print(451, "system error while finding mailbox");
+      return false;
+    }
+  }
+
   if (stat(to, &stats) != 0)
   {
     unsigned int code;
@@ -740,7 +800,7 @@ stat:
         }
         else
         { // try global CatchAll
-          sprintf(to, CATCHALL_LOCALPART);
+          sprintf(to, "%s", CATCHALL_LOCALPART);
           goto stat;
         }
       }
@@ -776,11 +836,31 @@ stat:
 #endif
 
   r = (recipient *)malloc(sizeof(*r));
-
+  if(r == NULL)
+  {
+    syslog(LOG_ERR, "malloc: %s", strerror(errno));
+    print(451, "memory error while opening mailbox");
+    return false;
+  }
   r->email = to;
   r->rcpt_to = rcpt_to;
   r->mboxname = strdup(mailbox);
+  if(r->mboxname == NULL)
+  {
+    syslog(LOG_ERR, "strdup: %s", strerror(errno));
+    print(451, "memory error while opening mailbox");
+    free(r);
+    return false;
+  }
   r->mailbox = fdopen(fd, "w");
+  if(r->mailbox == NULL)
+  {
+    syslog(LOG_ERR, "fdopen %d, to=<%s> : %s", fd, to, strerror(errno));
+    print(451, "system error while opening mailbox");
+    free(r->mboxname);
+    free(r);
+    return false;
+  }
   r->uid = stats.st_uid;
   r->gid = stats.st_gid;
   r->good = true;
@@ -845,9 +925,9 @@ bool free_recipients()
       if (size)
       {
         if (ok_write && ok_close && ok_link)
-          syslog(LOG_INFO, "message delivered: helo=%s [%s], localport=%s, id=%s, mail_from=<%s>, to=<%s>, size=%d", helo, peer, myport, id, mail, r->email, size);
+          syslog(LOG_INFO, "message delivered: helo=%s [%s], localport=%s, id=%s, mail_from=<%s>, to=<%s>, size=%lu", helo, peer, myport, id, mail, r->email, size);
         else
-          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], localport=%s, id=%s, mail_from=<%s>, to=<%s>, size=%d: %s", helo, peer, myport, id, mail, r->email, size, strerror(errno));
+          syslog(LOG_INFO, "failed to deliver message: helo=%s [%s], localport=%s, id=%s, mail_from=<%s>, to=<%s>, size=%lu: %s", helo, peer, myport, id, mail, r->email, size, strerror(errno));
       }
       unlink(r->mboxname);
       drop_privileges();
