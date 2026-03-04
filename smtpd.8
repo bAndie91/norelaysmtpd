@@ -33,50 +33,89 @@ Allows to specify the emplacement of smtpd's configuration file.
 .PP
 \fBsmtpd\fR recognises the following configuration directives in its configuration file:
 .TP
-\fBmailboxes\fR
+\fBmaildirs\fR
 The directory where mailboxes are located. Each e-mail address accepted by \fBsmtpd\fR must have a corresponding mailbox named after it in this directory.
 
-Default is /var/mailboxes.
+Default is /var/spool/norelaysmtpd.
 .TP
 \fBtimeout\fR
 The maximum duration \fBsmtpd\fR will wait for reply from sending systems.
 
-Default is 300 seconds (5 minutes).
+Default is 600 seconds (10 minutes).
 .TP
 \fBuser\fR
 The user id under which \fBsmtpd\fR runs.
+
+Default is \fInobody\fR.
 .TP
 \fBgroup\fR
 The group id under which \fBsmtpd\fR runs.
+
+Default is \fImail\fR.
 .TP
 \fBdatabase\fR
 The SQLite file \fBsmtpd\fR should use to store persistent information about clients. It currently only includes greylisting information.
 
-Default is /var/cache/smtpd/db.
+Default is /var/cache/norelaysmtpd/db.
 .TP
 \fBgreylist\fR
-How long (in seconds) clients must wait before retrying to send a deferred message once greylisted. Clients that retry after that delay are considered legitimate and any later connection will be accepted without delay.
+How long (in seconds) clients must wait before retrying to send a deferred message once greylisted. Clients that retry after that delay are considered legitimate and any later connection will be accepted without delay. Set to 0 to disable greylisting.
 
-Default is 300.
+Default is 0 (disabled).
 .TP
 \fBold\fR
 How much (in days) inactivity can be tolerated from legitimate clients before they are removed from the list of trusted servers.
 
 Default is 30.
+.TP
+\fBcatchall\fR
+If set to 1, accept all emails and deliver them to a mailbox named "catchall". If set to 0, only accept emails for existing mailboxes.
+
+Default is 0.
+.TP
+\fBrejectall\fR
+If set to 1, reject all incoming emails with SMTP error 502. Useful for maintenance mode.
+
+Default is 0.
+.TP
+\fBmkmailbox\fR
+If set to 1, automatically create mailbox directories if they don't exist. If set to 0, only deliver to existing mailboxes.
+
+Default is 0.
+.TP
+\fBcheck_mailbox_prehook_cmd\fR
+Path to a command to run before checking the existence of each mailbox. The command receives environment variables: SMTPD_PEER_IP, SMTPD_HELO, SMTPD_MAIL_FROM, SMTPD_RCPT_TO, SMTPD_MYIP, SMTPD_MYPORT, SMTPD_CLIENT_TLS_INFO, SMTPD_MAILBOXES_DIR.
+
+No default (disabled).
+.TP
+\fBaccept_bounces\fR
+If set to "yes", accept bounce emails (MAIL FROM:<>). If set to "no", reject them.
+
+Default is yes.
+.TP
+\fBspf_fail_as_permanent_error\fR
+If set to "yes", SPF failures (code 3) cause SMTP 5xx errors. If set to "no", they cause SMTP 4xx errors.
+
+Default is no.
+.TP
+\fBspfquery_accepted_codes\fR
+String of SPF result codes that are accepted. Do not include "3" (fail). Code meanings: 1=pass, 2=softfail, 4=neutral, 5=temperror, 7=none.
+
+Default is 1257.
 .SH "NOTES"
 .TP
-\fBmailboxes\fR
-Mailboxes must be located under a single directory (/var/mailboxes by default, but this can be changed in the config file). If you need to store your mailboxes elsewhere, just use symbolic links to make them available under a single directory.
+\fBmaildirs\fR
+Mailboxes must be located under a single directory (/var/spool/norelaysmtpd by default, but this can be changed in the config file). If you need to store your mailboxes elsewhere, just use symbolic links to make them available under a single directory.
 
 Mailboxes can be created using the \fBmaildirmake\fR(1) command. If you don't have the \fBmaildirmake\fR command, just use
 
-mkdir -p /var/mailboxes/jsmith@mycorp.com/{cur,new,tmp}
+mkdir -p /var/spool/norelaysmtpd/jsmith@mycorp.com/{cur,new,tmp}
 .TP
 \fBaliases\fR
 Mail aliases can easily be created with symbolic links
 
 The following commands define a few aliases for jsmith@mycorp.com
-$ cd /var/mailboxes
+$ cd /var/spool/norelaysmtpd
 $ ln -s jsmith@mycorp.com john.smith@mycorp.com
 $ ln -s jsmith@mycorp.com john.smith@eu.mycorp.com
 $ ln -s jsmith@mycorp.com john.smith@mycorp.eu
@@ -91,10 +130,10 @@ All received messages will be owned by support:support and access rights will be
 .SH "FILES"
 .PP
 .TP
-\fB/etc/smtpd.conf\fR
+\fB/etc/norelaysmtpd.conf\fR
 Configuration file.
 .TP
-\fB/var/mailboxes/*\fR
+\fB/var/spool/norelaysmtpd/*\fR
 Users' mailboxes.
 .SH "COPYING"
 .PP
