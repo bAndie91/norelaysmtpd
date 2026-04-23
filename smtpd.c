@@ -582,8 +582,18 @@ void delay()
   nanosleep(&t, NULL);
 }
 
+bool str_startswith(const char * s, const char * lead)
+{
+  return strncmp(s, lead, strlen(lead)) == 0 ? 1 : 0;
+}
+
 void suspicious(const char *line)
 {
+  if(str_startswith(line, "GET / HTTP/1"))
+  {
+    // bail out immediately if client thinks we are a web server.
+    abort();
+  }
   badness++;
   timeout /= 2; /* be less tolerant with bad clients */
 
